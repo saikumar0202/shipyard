@@ -30,6 +30,8 @@ The post job trusts nothing in `out.json` except as a *request*: it takes the is
 | `pr_title`, `pr_body` | string | Claude | Builder: the PR it opens. `Closes #<n>` is appended |
 | `has_patch` | bool | finalize | Writer roles: a non-empty, untampered patch exists |
 | `permission_denials` | `{tool, input}[]` | finalize | Every tool call the permission settings refused (input truncated to 300 chars) |
+| `tools_available` | string[] \| null | finalize | Tools Claude was offered (stream-json init event) |
+| `tool_calls` | `{tool: {ok, error}}` | finalize | Tool calls by result, from the stream-json events |
 | `git_tamper` | object \| null | make_patch | `hooks` (non-sample files in `.git/hooks`), `config_changed`, `base_is_ancestor`, `protected_paths_touched` |
 
 ### `exit_reason`
@@ -42,7 +44,7 @@ The post job trusts nothing in `out.json` except as a *request*: it takes the is
 | `cli_error` | CLI error or no JSON result | `blocked` |
 | `bad_output` | No structured output | `blocked` |
 | `empty_patch` | Builder/reproducer produced no changes ("no changes produced") | `blocked` |
-| `tampered` | The agent run wrote a git hook, changed `.git/config`, or rewrote history below the base commit. No patch is made | `blocked` |
+| `tampered` | The agent run wrote a git hook, changed `.git/config`, or rewrote history below the base commit. With only a hook, the existing commits are still written to the patch so the post job can check and report them; it is never pushed | `blocked` |
 | `timeout_or_crash` | Set by the post job when no `out.json` arrived (job timeout or crash) | `blocked` |
 
 ## What the post job accepts
@@ -60,7 +62,7 @@ Active panel (version 1): `code`, `qa` (`config/panel.json`).
 
 **Check runs:** reviewers create `review/<name>` on the PR head sha. `ready` is owned by the merge-readiness workflow, not by agents. No other names.
 
-**Pushes:** builder and reproducer only, and only when the event may write code (see the trigger check). Fresh checkout of the base commit, `git am`, then refused if any changed path is under `.github/` or `.claude/`, is `pipeline.yml`, or is LFS-tracked according to the base commit's `.gitattributes`. Pushed as `HEAD:refs/heads/issue-<n>`, never forced.
+**Pushes:** builder and reproducer only, and only when the event may write code (see the trigger check). Every non-empty patch is checked, even on a blocked run, so refusals are reported. Fresh checkout of the base commit, `git am`, then refused if any changed path is under `.github/` or `.claude/`, is `pipeline.yml`, or is LFS-tracked according to the base commit's `.gitattributes`. Pushed as `HEAD:refs/heads/issue-<n>`, never forced.
 
 **Comments:** planner and reproducer keep one sticky comment each (`<!-- shipyard:plan -->`, `<!-- shipyard:repro -->`), reviewers one per name on the PR (`<!-- shipyard:review/<name> -->`). The builder's result replaces the run's "working" comment (`<!-- shipyard:working:<run_id> -->`) when it exists. The reproducer's pushed commit is recorded as a `repro-sha` comment. Every run adds one line to the pinned pipeline-log issue (`PIPELINE_LOG_ISSUE`).
 
