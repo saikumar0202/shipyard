@@ -95,10 +95,10 @@ def decide(out, env):
     return {"out": out, "problems": problems, "add": add, "remove": remove, "check": check, "push": push}
 
 
-def run_push(env):
+def run_push(env, push=True):
     res = os.path.join(env["OUT_DIR"], "push-result.txt")
     subprocess.run([os.path.join(HERE, "apply_patch.sh"), os.path.join(env["OUT_DIR"], "changes.patch"),
-                    env["BASE_SHA"], env["BRANCH"], res], check=True)
+                    env["BASE_SHA"], env["BRANCH"], res, "push" if push else "check"], check=True)
     with open(res) as f:
         kind, _, detail = f.read().strip().partition(" ")
     return kind, detail
@@ -123,13 +123,16 @@ def main():
     d = decide(out, env)
     out, problems = d["out"], d["problems"]
 
+    # Every writer patch is checked (git am + path rules), even when the run is
+    # already blocked, so refusals are reported. It is pushed only if d["push"].
     pushed_sha = None
-    if d["push"]:
-        kind, detail = run_push(env)
+    patch = os.path.join(env["OUT_DIR"], "changes.patch")
+    if role in lib.WRITER_ROLES and os.path.exists(patch) and os.path.getsize(patch) > 0:
+        kind, detail = run_push(env, push=bool(d["push"]))
         if kind == "pushed":
             pushed_sha = detail
-        else:
-            problems.append("push %s: %s" % (kind, detail))
+        elif kind != "checked":
+            problems.append("patch %s: %s" % (kind, detail))
 
     footer = "\n\n---\n<sub>shipyard %s%s · %s · %ss · [run log](%s)</sub>" % (
         role, (":" + env["REVIEW_NAME"]) if env.get("REVIEW_NAME") else "",

@@ -4,7 +4,8 @@
 Claude itself only produces the structured_output part (comment, labels,
 check, titles). This non-AI step adds what Claude can't know: exit reason,
 duration, turns, permission denials and tamper evidence.
-Usage: finalize_out.py <result.json> <cli_exit> <duration_s> <out_dir>
+Usage: finalize_out.py <events.jsonl> <cli_exit> <duration_s> <out_dir>
+(events.jsonl is claude -p --output-format stream-json --verbose output)
 Env: ROLE, AGENT, REVIEW_NAME, ISSUE, PR
 """
 import json
@@ -23,7 +24,35 @@ def load(path):
         return None
 
 
-def build(result, cli_exit, duration, out_dir, env):
+def parse_events(path):
+    """Return (result, tools_available, tool_calls) from the stream-json events."""
+    result, tools, calls, names = None, None, {}, {}
+    try:
+        lines = open(path).read().splitlines()
+    except OSError:
+        return None, None, {}
+    for line in lines:
+        try:
+            ev = json.loads(line)
+        except ValueError:
+            continue
+        if ev.get("type") == "system" and ev.get("subtype") == "init":
+            tools = ev.get("tools")
+        elif ev.get("type") == "result":
+            result = ev
+        for item in ((ev.get("message") or {}).get("content") or []) if isinstance(ev.get("message"), dict) else []:
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") == "tool_use":
+                names[item.get("id")] = item.get("name")
+            elif item.get("type") == "tool_result":
+                name = names.get(item.get("tool_use_id"), "?")
+                c = calls.setdefault(name, {"ok": 0, "error": 0})
+                c["error" if item.get("is_error") else "ok"] += 1
+    return result, tools, calls
+
+
+def build(result, cli_exit, duration, out_dir, env, tools=None, calls=None):
     role = env["ROLE"]
     tamper = load(os.path.join(out_dir, "tamper.json")) or {}
     tampered = bool(tamper.get("hooks") or tamper.get("config_changed") or tamper.get("base_is_ancestor") is False)
@@ -53,16 +82,19 @@ def build(result, cli_exit, duration, out_dir, env):
         "pr_title": so.get("pr_title", ""),
         "pr_body": so.get("pr_body", ""),
         "has_patch": role in lib.WRITER_ROLES and not patch_empty and not tampered,
+        "tools_available": tools,
+        "tool_calls": calls or {},
         "permission_denials": denials,
         "git_tamper": tamper or None,
     }
 
 
 def main():
-    result_path, cli_exit, duration, out_dir = sys.argv[1:5]
-    out = build(load(result_path), int(cli_exit), float(duration), out_dir, os.environ)
-    if not out["has_patch"] and os.path.exists(os.path.join(out_dir, "changes.patch")):
-        open(os.path.join(out_dir, "changes.patch"), "w").close()
+    events_path, cli_exit, duration, out_dir = sys.argv[1:5]
+    result, tools, calls = parse_events(events_path)
+    out = build(result, int(cli_exit), float(duration), out_dir, os.environ, tools, calls)
+    # A tampered run keeps its patch file so the post job can check and report
+    # it; has_patch=false means it is never pushed.
     with open(os.path.join(out_dir, "out.json"), "w") as f:
         json.dump(out, f, indent=2)
     print("out.json: exit_reason=%s duration=%ss denials=%d" % (out["exit_reason"], out["duration_seconds"], len(out["permission_denials"])))

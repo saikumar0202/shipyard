@@ -26,6 +26,7 @@ on:
       max_turns:     { type: number, required: false, default: 0, description: "0 = role default" }
       ci_workflows:  { type: string, required: false, default: "", description: "Comma list of CI/preview workflow names (workflow_run trigger check)" }
       claude_code_version: { type: string, required: false, default: "2.1.330" }
+      attack_test:   { type: boolean, required: false, default: false, description: "attack-test.yml only: run tests/attack_shell.sh and a hand-written out.json" }
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: { required: true }
       APP_ID:                  { required: true }
@@ -179,15 +180,25 @@ jobs:
           open(os.path.join(ctx, "prompt.md"), "w").write("\n".join(lines) + "\n")
           PY
 
-      - name: Install Claude Code CLI (pinned) and bubblewrap for env scrubbing
+      - name: "Attack test only: shell attacks (a) push, (c) edit .github/, (b) write a hook"
+        if: inputs.attack_test
+        run: '"$PIPE/tests/attack_shell.sh"'
+
+      - name: Install bubblewrap (needed by CLAUDE_CODE_SUBPROCESS_ENV_SCRUB)
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq > /dev/null
+          sudo apt-get install -y -qq bubblewrap > /dev/null
+          # Ubuntu 24.04 blocks unprivileged user namespaces by default; bubblewrap needs them.
+          sudo sysctl -q -w kernel.apparmor_restrict_unprivileged_userns=0
+          bwrap --ro-bind / / true && echo "bubblewrap works"
+
+      - name: Install Claude Code CLI (pinned)
         env:
           CLAUDE_CODE_VERSION: ${{ inputs.claude_code_version }}
         run: |
           set -euo pipefail
           npm install -g --no-fund --no-audit "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" > /dev/null
-          sudo apt-get update -qq > /dev/null && sudo apt-get install -y -qq bubblewrap > /dev/null
-          # Ubuntu 24.04 blocks unprivileged user namespaces, which bubblewrap needs.
-          sudo sysctl -q -w kernel.apparmor_restrict_unprivileged_userns=0 || true
           claude --version
 
       - name: Claude (the only AI step; the token exists only here)
@@ -211,10 +222,12 @@ jobs:
             --add-dir "$CTX" \
             --strict-mcp-config \
             --no-session-persistence \
-            --output-format json \
+            --output-format stream-json --verbose \
             --json-schema "$(cat "$PIPE/schemas/agent-output.schema.json")" \
-            < "$CTX/prompt.md" > "$OUT/result.json" 2> "$OUT/stderr.log"
+            < "$CTX/prompt.md" > "$OUT/events.jsonl" 2> "$OUT/stderr.log"
           code=$?
+          # The last "result" event is the same object --output-format json gives.
+          jq -c 'select(.type == "result")' "$OUT/events.jsonl" 2>/dev/null | tail -n 1 > "$OUT/result.json"
           set -e
           echo "cli_exit=$code" >> "$GITHUB_OUTPUT"
           echo "duration=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
@@ -230,8 +243,14 @@ jobs:
       - name: Write out.json (non-AI)
         if: always()
         run: |
-          python3 "$PIPE/scripts/finalize_out.py" "$OUT/result.json" \
+          python3 "$PIPE/scripts/finalize_out.py" "$OUT/events.jsonl" \
             "${{ steps.claude.outputs.cli_exit || 1 }}" "${{ steps.claude.outputs.duration || 0 }}" "$OUT"
+
+      - name: "Attack test only: (d) hand-written out.json with a label outside the allowlist"
+        if: always() && inputs.attack_test
+        run: |
+          jq '.labels_add = ["attack-test-pwned"]' "$OUT/out.json" > "$OUT/out.tmp" && mv "$OUT/out.tmp" "$OUT/out.json"
+          jq -c '{labels_add}' "$OUT/out.json"
 
       - name: Upload out.json and patch
         if: always()
@@ -241,6 +260,7 @@ jobs:
           path: |
             ${{ runner.temp }}/out/out.json
             ${{ runner.temp }}/out/changes.patch
+            ${{ runner.temp }}/out/attack.json
           if-no-files-found: warn
           retention-days: 7
 

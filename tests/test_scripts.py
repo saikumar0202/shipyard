@@ -52,13 +52,13 @@ class Repo:
             with open(os.path.join(self.out, "changes.patch")) as p:
                 return json.load(f), p.read()
 
-    def apply(self, patch_text, branch="issue-7"):
+    def apply(self, patch_text, branch="issue-7", mode="push"):
         target = os.path.join(self.tmp, "post")
         sh(self.tmp, "git", "clone", "-q", self.remote, target)
         p = os.path.join(self.tmp, "p.patch")
         open(p, "w").write(patch_text)
         res = os.path.join(self.tmp, "res.txt")
-        subprocess.run([os.path.join(ROOT, "scripts", "apply_patch.sh"), p, self.base, branch, res],
+        subprocess.run([os.path.join(ROOT, "scripts", "apply_patch.sh"), p, self.base, branch, res, mode],
                        cwd=target, env=ENV, check=True, capture_output=True)
         return open(res).read().strip()
 
@@ -83,6 +83,20 @@ class MakePatch(unittest.TestCase):
         tamper, patch = r.make_patch()
         self.assertEqual(tamper["hooks"], ["pre-push"])
         self.assertEqual(patch, "")
+
+    def test_hook_with_commit_keeps_patch_for_checking(self):
+        r = Repo()
+        write(r.work, ".github/workflows/pwned.yml", "name: pwned\n")
+        sh(r.work, "git", "add", "-f", ".github/workflows/pwned.yml")
+        sh(r.work, "git", "commit", "-q", "-m", "edit .github")
+        write(r.work, "left.txt", "leftover\n")
+        write(r.work, ".git/hooks/pre-push", "#!/bin/sh\necho x\n")
+        tamper, patch = r.make_patch()
+        self.assertEqual(tamper["hooks"], ["pre-push"])
+        self.assertIn(".github/workflows/pwned.yml", patch)
+        self.assertNotIn("left.txt", patch)  # leftovers not committed when tampered
+        res = r.apply(patch, mode="check")
+        self.assertTrue(res.startswith("refused protected paths"), res)
 
     def test_config_change_means_no_patch(self):
         r = Repo()
@@ -130,6 +144,11 @@ class ApplyPatch(unittest.TestCase):
         r, p = self.patch_for({"art/hero.png": "not really a png\n", ".gitattributes": ""})
         self.assertIn("LFS-tracked paths", r.apply(p))
 
+    def test_check_mode_never_pushes(self):
+        r, p = self.patch_for({"src/app.ts": "x\n"})
+        self.assertTrue(r.apply(p, mode="check").startswith("checked "))
+        self.assertNotIn("issue-7", sh(r.tmp, "git", "ls-remote", "--heads", r.remote).stdout)
+
     def test_bad_branch_refused(self):
         r, p = self.patch_for({"src/app.ts": "x\n"})
         self.assertTrue(r.apply(p, branch="main").startswith("refused bad branch"))
@@ -174,6 +193,17 @@ class PostDecide(unittest.TestCase):
 
 
 class Finalize(unittest.TestCase):
+    def test_parse_events(self):
+        tmp = tempfile.mkdtemp()
+        ev = [{"type": "system", "subtype": "init", "tools": ["Read", "Write"]},
+              {"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "t1", "name": "WebFetch"}]}},
+              {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "t1", "is_error": True}]}},
+              {"type": "result", "subtype": "success", "num_turns": 2}]
+        path = os.path.join(tmp, "events.jsonl")
+        open(path, "w").write("\n".join(json.dumps(e) for e in ev) + "\nnot json\n")
+        result, tools, calls = finalize_out.parse_events(path)
+        self.assertEqual((result["num_turns"], tools, calls), (2, ["Read", "Write"], {"WebFetch": {"ok": 0, "error": 1}}))
+
     def test_out_json(self):
         tmp = tempfile.mkdtemp()
         open(os.path.join(tmp, "changes.patch"), "w").write("From abc\n")

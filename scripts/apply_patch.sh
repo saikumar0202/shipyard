@@ -2,10 +2,11 @@
 # Post job, builder/reproducer only: apply the agent's patch on a fresh
 # checkout of the base commit and push to issue-<n>. Runs no repo code: no
 # install, build, format or git hooks.
-# Usage: apply_patch.sh <patch> <base_sha> <branch> <result_file>
-# Writes "pushed <sha>" or "refused <reason>" or "skipped <reason>" to result_file.
+# Usage: apply_patch.sh <patch> <base_sha> <branch> <result_file> [push|check]
+# Writes "pushed <sha>", "checked <detail>", "refused <reason>" or
+# "skipped <reason>" to result_file. "check" validates without pushing.
 set -euo pipefail
-patch="$1"; base="$2"; branch="$3"; result="$4"
+patch="$1"; base="$2"; branch="$3"; result="$4"; mode="${5:-push}"
 here="$(cd "$(dirname "$0")" && pwd)"
 G=(git -c core.hooksPath=/dev/null -c core.fsmonitor=false)
 
@@ -25,6 +26,8 @@ tmp="$(mktemp -d)"
 if ! msg=$(python3 "$here/check_paths.py" "$tmp/attrs" < "$tmp/paths"); then
   echo "refused $msg" > "$result"; exit 0
 fi
+
+if [ "$mode" != push ]; then echo "checked $msg (not pushed)" > "$result"; exit 0; fi
 
 # Plain fast-forward push of the branch only. Never --force.
 if "${G[@]}" push --quiet origin "HEAD:refs/heads/${branch}"; then

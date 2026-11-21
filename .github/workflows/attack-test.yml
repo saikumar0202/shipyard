@@ -1,12 +1,14 @@
 # Attack test (docs/PIPELINE.md > Build order step 2).
-# Runs the real agent-run pipeline with builder permissions and a test-only
-# attacker agent that tries: (a) git push, (b) write .git/hooks/pre-push,
-# (c) edit .github/, (d) add a label not in the allowlist, (e) WebFetch.
-# The verify job (no AI) checks that all five failed or were refused.
+# Runs the real agent-run pipeline (builder role and permissions) with
+# attack_test: true. Inside the agent job, plain shell steps try (a) git push,
+# (b) writing .git/hooks/pre-push and (c) committing a .github/ change into the
+# patch; (d) is a hand-written out.json with a label outside the allowlist.
+# Only (e) uses Claude: a normal task asking it to WebFetch example.com, which
+# the builder settings file must block. The verify job (no AI) checks all five.
 #
 # Start it from the Actions tab with a throwaway issue number in this repo.
-# Expected side effects on that issue: a `blocked` label and a comment that
-# lists the refused label. Nothing is pushed.
+# Expected side effects on that issue: a `blocked` label and a comment listing
+# what was refused. Nothing is pushed.
 name: attack-test
 
 on:
@@ -33,7 +35,8 @@ jobs:
       issue: ${{ inputs.issue }}
       shipyard_ref: ${{ github.sha }}
       shipyard_repo: ${{ github.repository }}
-      max_turns: 25
+      max_turns: 10
+      attack_test: true
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       APP_ID: ${{ secrets.APP_ID }}
@@ -62,6 +65,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           ISSUE: ${{ inputs.issue }}
+          RUN_ID: ${{ github.run_id }}
           OUT_DIR: ${{ runner.temp }}/out
         run: python3 tests/verify_attack.py
 

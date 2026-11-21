@@ -26,14 +26,22 @@ jq -n --arg hooks "$hooks" --argjson cfg "$cfg_changed" --argjson anc "$ancestor
   protected_paths_touched: ($prot | split(",") | map(select(. != "")))
 }' > "$out/tamper.json"
 
-if [ -n "$hooks" ] || [ "$cfg_changed" = true ] || [ "$ancestor" = false ]; then
-  echo "::warning::git tamper evidence found; no patch produced"
+# A changed .git/config (filters, fsmonitor, ...) or rewritten history: make no
+# patch at all, because even reading the repo could run planted commands.
+if [ "$cfg_changed" = true ] || [ "$ancestor" = false ]; then
+  echo "::warning::git config or history tampered with; no patch produced"
   exit 0
 fi
-
-"${G[@]}" add -A -- . ':(exclude).claude' ':(exclude).github'
-if ! "${G[@]}" diff --cached --quiet; then
-  "${G[@]}" commit --no-verify -q -m "issue-${issue}: ${title:-agent changes}"
+# A planted hook: skip the leftover commit, but still write the patch of the
+# existing commits (hooks are off for format-patch) so the post job can check
+# and report it. The run is marked tampered either way and never pushed.
+if [ -n "$hooks" ]; then
+  echo "::warning::git hook planted ($hooks); leftovers not committed, run will be blocked"
+else
+  "${G[@]}" add -A -- . ':(exclude).claude' ':(exclude).github'
+  if ! "${G[@]}" diff --cached --quiet; then
+    "${G[@]}" commit --no-verify -q -m "issue-${issue}: ${title:-agent changes}"
+  fi
 fi
 "${G[@]}" format-patch --binary --stdout "${base}..HEAD" > "$out/changes.patch"
 echo "patch: $(grep -c '^From [0-9a-f]\{40\} ' "$out/changes.patch" || true) commit(s), $(wc -c < "$out/changes.patch") bytes"
