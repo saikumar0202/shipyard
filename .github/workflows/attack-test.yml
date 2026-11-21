@@ -42,6 +42,9 @@ jobs:
           echo "APP_PRIVATE_KEY set: $HAS_APP_KEY"
           echo "PIPELINE_BOT: ${BOT:-<unset>}"
           echo "PIPELINE_PAUSED: ${PAUSED:-<unset>}"
+          # Fail fast: a missing setting would otherwise waste a Claude run.
+          [ "$HAS_CLAUDE" = true ] && [ "$APP_CLIENT_ID" = true ] && [ "$HAS_APP_KEY" = true ] && [ -n "$BOT" ] \
+            || { echo "::error::a required secret or variable is missing (see above)"; exit 1; }
 
   fingerprint:
     # (f) setup, no AI. Hashes every 16-char window of the token's random part

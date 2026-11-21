@@ -191,11 +191,12 @@ jobs:
         if: inputs.attack_test
         run: '"$PIPE/tests/attack_shell.sh"'
 
-      - name: Install bubblewrap (needed by CLAUDE_CODE_SUBPROCESS_ENV_SCRUB)
+      - name: Install bubblewrap and socat (Claude's Bash sandbox, needed by CLAUDE_CODE_SUBPROCESS_ENV_SCRUB)
         run: |
           set -euo pipefail
           sudo apt-get update -qq > /dev/null
-          sudo apt-get install -y -qq bubblewrap > /dev/null
+          sudo apt-get install -y -qq bubblewrap socat > /dev/null
+          command -v socat > /dev/null
           # Ubuntu 24.04 blocks unprivileged user namespaces by default; bubblewrap needs them.
           sudo sysctl -q -w kernel.apparmor_restrict_unprivileged_userns=0
           bwrap --ro-bind / / true && echo "bubblewrap works"
