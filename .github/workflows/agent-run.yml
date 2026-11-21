@@ -210,13 +210,17 @@ jobs:
           claude --version
 
       - name: Prepare the Bash sandbox's mount points
-        # The sandbox guards .git/config.lock by mounting over it; with .git
-        # already read-only it can't create that file and Bash fails to start.
-        # Creating it empty first fixes that (and blocks any git config write).
-        # Removed again right after the Claude step.
+        # The sandbox guards .git/config, config.worktree and their .lock files
+        # by mounting over them; with .git already read-only it can't create a
+        # missing one and Bash fails to start. Create the missing ones empty
+        # (git ignores an empty config.worktree; an existing config.lock blocks
+        # any git config write). Removed again right after the Claude step.
         run: |
-          [ -e .git/config.lock ] && { echo "::error::.git/config.lock already exists"; exit 1; }
-          : > .git/config.lock
+          : > "$RUNNER_TEMP/sandbox-stubs"
+          for f in config.worktree config.lock config.worktree.lock; do
+            if [ ! -e ".git/$f" ]; then : > ".git/$f"; echo ".git/$f" >> "$RUNNER_TEMP/sandbox-stubs"; fi
+          done
+          cat "$RUNNER_TEMP/sandbox-stubs"
 
       - name: Claude (the only AI step; the token exists only here)
         id: claude
@@ -251,9 +255,11 @@ jobs:
           # Public logs: print only the outcome, never Claude's output.
           jq -c '{subtype, is_error, num_turns, denials: (.permission_denials // [] | length)}' "$OUT/result.json" 2>/dev/null || echo "no JSON result (exit $code)"
 
-      - name: Remove the sandbox mount point
+      - name: Remove the sandbox mount points
         if: always()
-        run: rm -f .git/config.lock
+        run: |
+          [ -f "$RUNNER_TEMP/sandbox-stubs" ] || exit 0
+          while read -r f; do rm -f -- "$f"; done < "$RUNNER_TEMP/sandbox-stubs"
 
       - name: Commit leftovers and make the patch (non-AI)
         if: always() && (inputs.role == 'builder' || inputs.role == 'reproducer')
