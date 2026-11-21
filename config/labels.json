@@ -1,0 +1,33 @@
+{
+  "_comment": "Labels table from docs/PIPELINE.md. 'agents' lists the roles whose out.json may add the label (the table's 'Added by' column). Labels added by 'You', 'Workflow' or a template are never accepted from out.json. review:/must-fix: labels are generated from config/panel.json; bot-run-N and budget+N are created by setup-labels.sh.",
+  "labels": [
+    {"name": "feature",          "color": "1d76db", "description": "Feature track",                                   "agents": []},
+    {"name": "bug",              "color": "d73a4a", "description": "Fix track",                                       "agents": []},
+    {"name": "idea",             "color": "c5def5", "description": "Discover & Define",                               "agents": []},
+    {"name": "release",          "color": "0e8a16", "description": "Release stage",                                   "agents": []},
+    {"name": "incident",         "color": "b60205", "description": "Operate: incident",                               "agents": []},
+    {"name": "review",           "color": "bfdadc", "description": "Learn: monthly review",                           "agents": []},
+    {"name": "spec-ok",          "color": "0e8a16", "description": "Your spec gate (spec: on only)",                  "agents": []},
+    {"name": "approved",         "color": "0e8a16", "description": "Your build gate",                                 "agents": []},
+    {"name": "repro-ok",         "color": "5319e7", "description": "Reproducer pushed a failing test",                "agents": ["reproducer"]},
+    {"name": "manual-repro",     "color": "5319e7", "description": "Reproduced; no automated test possible",          "agents": ["reproducer"]},
+    {"name": "hold",             "color": "fbca04", "description": "Don't build the fix until removed",               "agents": []},
+    {"name": "must-fix-pending", "color": "e99695", "description": "Starts the builder on review findings",           "agents": []},
+    {"name": "needs-changes",    "color": "e99695", "description": "Your request for changes",                        "agents": []},
+    {"name": "needs-info",       "color": "fbca04", "description": "Couldn't reproduce",                              "agents": ["reproducer"]},
+    {"name": "needs-spec",       "color": "fbca04", "description": "Needs a product decision",                        "agents": ["reproducer"]},
+    {"name": "queued",           "color": "ededed", "description": "Waiting for the WIP limit",                       "agents": []},
+    {"name": "blocked",          "color": "b60205", "description": "An agent stopped; reason in a comment",           "agents": []},
+    {"name": "needs-human",      "color": "b60205", "description": "Protected files or a wrong reproducer test",      "agents": ["builder"]},
+    {"name": "parked",           "color": "ededed", "description": "Stopped",                                        "agents": []},
+    {"name": "wontfix",          "color": "ffffff", "description": "Stopped",                                        "agents": []},
+    {"name": "sev:1",            "color": "b60205", "description": "Incident: down or data loss",                     "agents": []},
+    {"name": "sev:2",            "color": "d93f0b", "description": "Incident: major feature broken",                  "agents": []}
+  ],
+  "generated": {
+    "review":   {"color": "c2e0c6", "description": "Reviewer to run on the PR", "agents": ["planner", "reproducer"]},
+    "must_fix": {"color": "e99695", "description": "Reviewer found must-fix items", "agents": ["reviewer:self"]},
+    "bot_run":  {"count": 4, "color": "ededed", "description": "Run budget counter"},
+    "budget":   {"count": 4, "color": "ededed", "description": "One extra builder run"}
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "_comment": "Builder: same as reproducer. Permission checks are never skipped. No web tools.",
+  "permissions": {
+    "defaultMode": "default",
+    "disableBypassPermissionsMode": "disable",
+    "allow": [
+      "Read",
+      "Grep",
+      "Glob",
+      "Skill",
+      "Edit",
+      "Write",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
+    ],
+    "deny": [
+      "WebFetch",
+      "WebSearch",
+      "NotebookEdit",
+      "Task",
+      "Agent",
+      "Bash(git push:*)",
+      "Bash(git remote:*)",
+      "Bash(git config:*)",
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+      "Edit(./.git/**)",
+      "Write(./.git/**)",
+      "Edit(./.github/**)",
+      "Write(./.github/**)",
+      "Edit(./.claude/**)",
+      "Write(./.claude/**)"
+    ]
+  },
+  "enableAllProjectMcpServers": false
+}

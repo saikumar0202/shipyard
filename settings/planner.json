@@ -1,0 +1,32 @@
+{
+  "_comment": "Planner: Read, Grep, Glob only (docs: Guardrails > Tool permissions). Permission checks are never skipped. No web tools.",
+  "permissions": {
+    "defaultMode": "default",
+    "disableBypassPermissionsMode": "disable",
+    "allow": [
+      "Read",
+      "Grep",
+      "Glob",
+      "Skill"
+    ],
+    "deny": [
+      "WebFetch",
+      "WebSearch",
+      "NotebookEdit",
+      "Task",
+      "Agent",
+      "Bash(git push:*)",
+      "Bash(git remote:*)",
+      "Bash(git config:*)",
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+      "Edit(./.git/**)",
+      "Write(./.git/**)",
+      "Edit(./.github/**)",
+      "Write(./.github/**)",
+      "Edit(./.claude/**)",
+      "Write(./.claude/**)"
+    ]
+  },
+  "enableAllProjectMcpServers": false
+}

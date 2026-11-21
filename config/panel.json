@@ -1,0 +1,5 @@
+{
+  "_comment": "Active reviewer panel (docs/PIPELINE.md, Reviewers > Active panel). Only these names are valid review:<name> labels. Version 1 (Minimum first version) is code and QA only.",
+  "panel": ["code", "qa"],
+  "always": ["code", "qa"]
+}

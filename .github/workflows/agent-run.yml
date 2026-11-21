@@ -1,0 +1,319 @@
+# Reusable agent run: context job -> agent job -> post job.
+# docs/PIPELINE.md > Guardrails > "Agent job / post job, for every agent".
+#
+#   context  (no AI)  trigger check + prompt input filter, read-only token
+#   agent    (AI)     claude -p, contents: read, no App token, no push creds
+#   post     (no AI)  mints the App token, applies out.json and the patch
+#
+# Callers pin this file by tag AND pass the same tag as shipyard_ref, so the
+# scripts, agents, skills and settings files come from the same version:
+#   uses: saikumar0202/shipyard/.github/workflows/agent-run.yml@v0.1.0
+#   with: { shipyard_ref: v0.1.0, role: planner, issue: 12 }
+name: agent-run
+
+on:
+  workflow_call:
+    inputs:
+      role:          { type: string, required: true, description: "planner | reproducer | builder | reviewer" }
+      issue:         { type: number, required: true, description: "Issue number (the card on the board)" }
+      pr:            { type: number, required: false, default: 0, description: "PR number (reviewers; builder rework)" }
+      review_name:   { type: string, required: false, default: "", description: "Reviewer name from the active panel" }
+      head_sha:      { type: string, required: false, default: "", description: "Reviewer: PR head commit to review" }
+      agent:         { type: string, required: false, default: "", description: "Agent file name; defaults to the role (reviewer-<name> for reviewers)" }
+      shipyard_ref:  { type: string, required: true, description: "Same tag or sha as the @ref used in 'uses:'" }
+      shipyard_repo: { type: string, required: false, default: "saikumar0202/shipyard" }
+      bash_commands: { type: string, required: false, default: "", description: "Builder/reproducer: project commands, one per line" }
+      max_turns:     { type: number, required: false, default: 0, description: "0 = role default" }
+      ci_workflows:  { type: string, required: false, default: "", description: "Comma list of CI/preview workflow names (workflow_run trigger check)" }
+      claude_code_version: { type: string, required: false, default: "2.1.330" }
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: { required: true }
+      APP_ID:                  { required: true }
+      APP_PRIVATE_KEY:         { required: true }
+
+# Nothing at workflow level; every job declares exactly what it needs.
+permissions: {}
+
+jobs:
+  context:
+    # Kill switch: PIPELINE_PAUSED=true makes every run exit at once.
+    if: vars.PIPELINE_PAUSED != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read        # read refs (base sha) and the repo
+      issues: read          # read the issue body and comments for the prompt filter
+      pull-requests: read   # read the PR body and reviews (reviewer runs)
+    outputs:
+      allowed:        ${{ steps.trigger.outputs.allowed }}
+      can_write_code: ${{ steps.trigger.outputs.can_write_code }}
+      base_sha:       ${{ steps.ctx.outputs.base_sha }}
+      head_sha:       ${{ steps.ctx.outputs.head_sha }}
+      branch:         ${{ steps.ctx.outputs.branch }}
+      bot_email:      ${{ steps.ctx.outputs.bot_email }}
+    env:
+      SHIPYARD_REPO: ${{ inputs.shipyard_repo }}
+      SHIPYARD_REF: ${{ inputs.shipyard_ref }}
+    steps:
+      - name: Fetch shipyard at the pinned ref (public repo, no token)
+        run: |
+          git init -q "$RUNNER_TEMP/pipeline"
+          git -C "$RUNNER_TEMP/pipeline" fetch -q --depth 1 "https://github.com/$SHIPYARD_REPO" "$SHIPYARD_REF"
+          git -C "$RUNNER_TEMP/pipeline" checkout -q FETCH_HEAD
+
+      - name: Trigger check
+        id: trigger
+        env:
+          PIPELINE_OWNER: ${{ vars.PIPELINE_OWNER || github.repository_owner }}
+          PIPELINE_BOT: ${{ vars.PIPELINE_BOT }}
+          PIPELINE_PAUSED: ${{ vars.PIPELINE_PAUSED }}
+          CI_WORKFLOWS: ${{ inputs.ci_workflows }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 "$RUNNER_TEMP/pipeline/scripts/trigger_check.py"
+
+      - name: Prompt input filter and run facts
+        id: ctx
+        if: steps.trigger.outputs.allowed == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PIPELINE_OWNER: ${{ vars.PIPELINE_OWNER || github.repository_owner }}
+          PIPELINE_BOT: ${{ vars.PIPELINE_BOT }}
+          ROLE: ${{ inputs.role }}
+          ISSUE: ${{ inputs.issue }}
+          PR: ${{ inputs.pr != 0 && inputs.pr || '' }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          OUT_DIR: ${{ runner.temp }}/ctx
+        run: python3 "$RUNNER_TEMP/pipeline/scripts/build_context.py"
+
+      - name: Upload context
+        if: steps.trigger.outputs.allowed == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agent-context-${{ inputs.role }}${{ inputs.review_name && format('-{0}', inputs.review_name) || '' }}
+          path: ${{ runner.temp }}/ctx
+          retention-days: 3
+
+  agent:
+    needs: context
+    if: needs.context.outputs.allowed == 'true'
+    runs-on: ubuntu-24.04
+    # docs: builder 45, reviewer 15. Planner and reproducer use 20 and 45.
+    timeout-minutes: ${{ inputs.role == 'reviewer' && 15 || inputs.role == 'planner' && 20 || 45 }}
+    permissions:
+      contents: read        # check out the code; nothing else. No App token exists in this job.
+    env:
+      ROLE: ${{ inputs.role }}
+      REVIEW_NAME: ${{ inputs.review_name }}
+      AGENT: ${{ inputs.agent || (inputs.role == 'reviewer' && format('reviewer-{0}', inputs.review_name)) || inputs.role }}
+      ISSUE: ${{ inputs.issue }}
+      PR: ${{ inputs.pr != 0 && inputs.pr || '' }}
+      BASE_SHA: ${{ needs.context.outputs.base_sha }}
+      HEAD_SHA: ${{ needs.context.outputs.head_sha }}
+      SHIPYARD_REPO: ${{ inputs.shipyard_repo }}
+      SHIPYARD_REF: ${{ inputs.shipyard_ref }}
+    steps:
+      - name: Fetch shipyard at the pinned ref (public repo, no token)
+        run: |
+          PIPE="$RUNNER_TEMP/pipeline"
+          { echo "PIPE=$PIPE"; echo "CTX=$RUNNER_TEMP/ctx"; echo "OUT=$RUNNER_TEMP/out"; } >> "$GITHUB_ENV"
+          git init -q "$PIPE"
+          git -C "$PIPE" fetch -q --depth 1 "https://github.com/$SHIPYARD_REPO" "$SHIPYARD_REF"
+          git -C "$PIPE" checkout -q FETCH_HEAD
+
+      - name: Check out the project (no credentials kept, no LFS files)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.context.outputs.head_sha }}
+          persist-credentials: false
+          lfs: false
+          fetch-depth: 0
+
+      - name: Download context
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: agent-context-${{ inputs.role }}${{ inputs.review_name && format('-{0}', inputs.review_name) || '' }}
+          path: ${{ runner.temp }}/ctx
+
+      - name: Prepare run (non-AI)
+        env:
+          BASH_COMMANDS: ${{ inputs.bash_commands }}
+          BOT: ${{ vars.PIPELINE_BOT || 'shipyard-pipeline[bot]' }}
+          BOT_EMAIL: ${{ needs.context.outputs.bot_email || 'pipeline@users.noreply.github.com' }}
+          MAX_TURNS_IN: ${{ inputs.max_turns }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$OUT" ~/.claude/agents ~/.claude/skills
+          [ -f "$PIPE/agents/$AGENT.md" ] || [ -f "$PIPE/tests/agents/$AGENT.md" ] || { echo "::error::unknown agent $AGENT"; exit 1; }
+          # Agents and skills go to Claude Code's user-level folders (outside the repo, never committed).
+          cp "$PIPE"/agents/*.md ~/.claude/agents/
+          cp -r "$PIPE"/skills/. ~/.claude/skills/
+          if [ -f "$PIPE/tests/agents/$AGENT.md" ]; then cp "$PIPE/tests/agents/$AGENT.md" ~/.claude/agents/; fi
+          # Per-agent permissions, plus the project's Bash commands for writers.
+          printf '%s\n' "$BASH_COMMANDS" | python3 "$PIPE/scripts/make_settings.py" "$ROLE" "$GITHUB_WORKSPACE" "$RUNNER_TEMP/settings.json"
+          # Role default max turns.
+          case "$ROLE" in planner) t=40;; reviewer) t=40;; reproducer) t=60;; *) t=120;; esac
+          [ "$MAX_TURNS_IN" != "0" ] && t="$MAX_TURNS_IN"
+          echo "MAX_TURNS=$t" >> "$GITHUB_ENV"
+          # Commits made in this job are authored by the pipeline bot.
+          git config user.name "$BOT"; git config user.email "$BOT_EMAIL"
+          echo "GIT_CONFIG_SHA_BEFORE=$(sha256sum .git/config | cut -d' ' -f1)" >> "$GITHUB_ENV"
+          # Reviewers read the diff from a file (they have no Bash).
+          if [ "$ROLE" = reviewer ]; then
+            base=$(jq -r .base_sha "$CTX/run.json")
+            git -c core.hooksPath=/dev/null diff --no-color "$base...HEAD" > "$CTX/diff.patch"
+          fi
+          python3 - <<'PY'
+          import json, os
+          ctx, role = os.environ["CTX"], os.environ["ROLE"]
+          run = json.load(open(os.path.join(ctx, "run.json")))
+          lines = [
+            "You are running as the %s agent of the shipyard pipeline, for issue #%s%s." % (
+                os.environ["AGENT"], run["issue"], (", PR #%s" % run["pr"]) if run["pr"] else ""),
+            "Run context (owner and pipeline-bot text only): %s/context.md" % ctx,
+            "Trusted run facts: %s/run.json (branch %s, base %s%s)." % (
+                ctx, run["branch"], run["base_sha"], (", repro-sha " + run["repro_sha"]) if run["repro_sha"] else ""),
+          ]
+          if role == "reviewer":
+              lines.append("Diff to review: %s/diff.patch" % ctx)
+          lines.append("Read them, do your job as your agent file and skill describe, and return the structured output.")
+          open(os.path.join(ctx, "prompt.md"), "w").write("\n".join(lines) + "\n")
+          PY
+
+      - name: Install Claude Code CLI (pinned) and bubblewrap for env scrubbing
+        env:
+          CLAUDE_CODE_VERSION: ${{ inputs.claude_code_version }}
+        run: |
+          set -euo pipefail
+          npm install -g --no-fund --no-audit "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" > /dev/null
+          sudo apt-get update -qq > /dev/null && sudo apt-get install -y -qq bubblewrap > /dev/null
+          # Ubuntu 24.04 blocks unprivileged user namespaces, which bubblewrap needs.
+          sudo sysctl -q -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          claude --version
+
+      - name: Claude (the only AI step; the token exists only here)
+        id: claude
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Strip the token from every subprocess Claude starts (Bash, tests).
+          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"
+          DISABLE_AUTOUPDATER: "1"
+          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+        run: |
+          start=$(date +%s)
+          set +e
+          # Permission checks are never skipped: no --dangerously-skip-permissions,
+          # no bypass mode; anything not allowed by the settings file is denied.
+          claude -p \
+            --agent "$AGENT" \
+            --settings "$RUNNER_TEMP/settings.json" \
+            --permission-mode default \
+            --max-turns "$MAX_TURNS" \
+            --add-dir "$CTX" \
+            --strict-mcp-config \
+            --no-session-persistence \
+            --output-format json \
+            --json-schema "$(cat "$PIPE/schemas/agent-output.schema.json")" \
+            < "$CTX/prompt.md" > "$OUT/result.json" 2> "$OUT/stderr.log"
+          code=$?
+          set -e
+          echo "cli_exit=$code" >> "$GITHUB_OUTPUT"
+          echo "duration=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
+          # Public logs: print only the outcome, never Claude's output.
+          jq -c '{subtype, is_error, num_turns, denials: (.permission_denials // [] | length)}' "$OUT/result.json" 2>/dev/null || echo "no JSON result (exit $code)"
+
+      - name: Commit leftovers and make the patch (non-AI)
+        if: always() && (inputs.role == 'builder' || inputs.role == 'reproducer')
+        run: |
+          title=$(jq -r '.structured_output.summary_title // ""' "$OUT/result.json" 2>/dev/null || true)
+          "$PIPE/scripts/make_patch.sh" "$BASE_SHA" "$ISSUE" "$title" "$OUT"
+
+      - name: Write out.json (non-AI)
+        if: always()
+        run: |
+          python3 "$PIPE/scripts/finalize_out.py" "$OUT/result.json" \
+            "${{ steps.claude.outputs.cli_exit || 1 }}" "${{ steps.claude.outputs.duration || 0 }}" "$OUT"
+
+      - name: Upload out.json and patch
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agent-output-${{ inputs.role }}${{ inputs.review_name && format('-{0}', inputs.review_name) || '' }}
+          path: |
+            ${{ runner.temp }}/out/out.json
+            ${{ runner.temp }}/out/changes.patch
+          if-no-files-found: warn
+          retention-days: 7
+
+  post:
+    needs: [context, agent]
+    if: always() && needs.context.outputs.allowed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # The GITHUB_TOKEN gets nothing: every write uses the App token, because
+    # events made with GITHUB_TOKEN never start other workflows.
+    permissions: {}
+    env:
+      ROLE: ${{ inputs.role }}
+      REVIEW_NAME: ${{ inputs.review_name }}
+      ISSUE: ${{ inputs.issue }}
+      PR: ${{ inputs.pr != 0 && inputs.pr || '' }}
+      BASE_SHA: ${{ needs.context.outputs.base_sha }}
+      HEAD_SHA: ${{ needs.context.outputs.head_sha }}
+      BRANCH: ${{ needs.context.outputs.branch }}
+      CAN_WRITE_CODE: ${{ needs.context.outputs.can_write_code }}
+      AGENT_JOB_RESULT: ${{ needs.agent.result }}
+      SHIPYARD_REPO: ${{ inputs.shipyard_repo }}
+      SHIPYARD_REF: ${{ inputs.shipyard_ref }}
+    steps:
+      - name: Fetch shipyard at the pinned ref (public repo, no token)
+        run: |
+          PIPE="$RUNNER_TEMP/pipeline"
+          { echo "PIPE=$PIPE"; echo "OUT_DIR=$RUNNER_TEMP/out"; } >> "$GITHUB_ENV"
+          git init -q "$PIPE"
+          git -C "$PIPE" fetch -q --depth 1 "https://github.com/$SHIPYARD_REPO" "$SHIPYARD_REF"
+          git -C "$PIPE" checkout -q FETCH_HEAD
+
+      - name: Download out.json and patch
+        continue-on-error: true   # a timed-out agent job uploads nothing; post_apply reports it
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: agent-output-${{ inputs.role }}${{ inputs.review_name && format('-{0}', inputs.review_name) || '' }}
+          path: ${{ runner.temp }}/out
+
+      - name: Mint the pipeline App token (this repo only, minimum permissions)
+        id: app
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write        # push issue-<n> (builder, reproducer)
+          permission-issues: write          # labels and comments
+          permission-pull-requests: write   # open the builder's PR, PR labels
+          permission-checks: write          # review/<name> check runs
+
+      - name: Fresh checkout of the base commit for git am (writers only)
+        if: inputs.role == 'builder' || inputs.role == 'reproducer'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.context.outputs.base_sha }}
+          token: ${{ steps.app.outputs.token }}
+          persist-credentials: true   # needed for the one push; this job runs no repo code
+          lfs: false
+          fetch-depth: 0
+          path: repo
+
+      - name: Apply out.json and patch (no AI, no repo code)
+        working-directory: ${{ (inputs.role == 'builder' || inputs.role == 'reproducer') && 'repo' || '.' }}
+        env:
+          APP_TOKEN: ${{ steps.app.outputs.token }}
+          BOT_LOGIN: ${{ vars.PIPELINE_BOT }}
+          BOT_EMAIL: ${{ needs.context.outputs.bot_email }}
+          PIPELINE_LOG_ISSUE: ${{ vars.PIPELINE_LOG_ISSUE }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -d .git ]; then
+            git config user.name "$BOT_LOGIN"; git config user.email "$BOT_EMAIL"
+          fi
+          python3 "$PIPE/scripts/post_apply.py"

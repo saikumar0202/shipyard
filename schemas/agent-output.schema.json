@@ -1,0 +1,25 @@
+{
+  "$comment": "Passed to claude -p --json-schema. This is the only thing an agent produces besides file edits; the non-AI step wraps it into out.json (schemas/out.schema.json).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["comment", "labels_add"],
+  "properties": {
+    "comment":       {"type": "string", "maxLength": 60000, "description": "Markdown comment. Must end with what you did and what you need from the owner."},
+    "labels_add":    {"type": "array", "maxItems": 10, "items": {"type": "string", "maxLength": 50}},
+    "labels_remove": {"type": "array", "maxItems": 10, "items": {"type": "string", "maxLength": 50}},
+    "summary_title": {"type": "string", "maxLength": 72, "description": "Builder/reproducer: commit summary title."},
+    "pr_title":      {"type": "string", "maxLength": 120, "description": "Builder: PR title."},
+    "pr_body":       {"type": "string", "maxLength": 20000, "description": "Builder: PR body. 'Closes #n' is added for you."},
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["conclusion", "title", "summary"],
+      "description": "Reviewers only: failure when there are must-fix items.",
+      "properties": {
+        "conclusion": {"enum": ["success", "failure"]},
+        "title":      {"type": "string", "maxLength": 200},
+        "summary":    {"type": "string", "maxLength": 60000}
+      }
+    }
+  }
+}
