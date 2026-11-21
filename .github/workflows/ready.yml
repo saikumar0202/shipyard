@@ -1,0 +1,65 @@
+# Reusable merge-readiness recompute (docs/PIPELINE.md > AI review > Merge readiness).
+# The project's caller runs it on workflow_run (completed) of its CI and preview
+# workflows. No AI. Creates or updates one `ready` check on the PR head commit.
+#
+#   uses: saikumar0202/shipyard/.github/workflows/ready.yml@v0.1.2
+#   with: { shipyard_ref: v0.1.2, project_type: web, ci_workflows: "ci,preview" }
+name: ready
+
+on:
+  workflow_call:
+    inputs:
+      shipyard_ref:  { type: string, required: true, description: "Same tag or sha as the @ref used in 'uses:'" }
+      shipyard_repo: { type: string, required: false, default: "saikumar0202/shipyard" }
+      project_type:  { type: string, required: true, description: "type from .github/pipeline.yml (web, game, ai, desktop)" }
+      ci_workflows:  { type: string, required: true, description: "Comma list of the CI and preview workflow names" }
+    secrets:
+      APP_PRIVATE_KEY: { required: true }
+
+permissions: {}
+
+jobs:
+  ready:
+    if: vars.PIPELINE_PAUSED != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    # The GITHUB_TOKEN gets nothing; reads and the check write use the App token.
+    permissions: {}
+    env:
+      SHIPYARD_REPO: ${{ inputs.shipyard_repo }}
+      SHIPYARD_REF: ${{ inputs.shipyard_ref }}
+    steps:
+      - name: Fetch shipyard at the pinned ref (public repo, no token)
+        run: |
+          PIPE="$RUNNER_TEMP/pipeline"; echo "PIPE=$PIPE" >> "$GITHUB_ENV"
+          git init -q "$PIPE"
+          git -C "$PIPE" fetch -q --depth 1 "https://github.com/$SHIPYARD_REPO" "$SHIPYARD_REF"
+          git -C "$PIPE" checkout -q FETCH_HEAD
+
+      - name: Trigger check (this repo's CI or preview workflow only)
+        id: trigger
+        env:
+          PIPELINE_OWNER: ${{ vars.PIPELINE_OWNER || github.repository_owner }}
+          PIPELINE_BOT: ${{ vars.PIPELINE_BOT }}
+          PIPELINE_PAUSED: ${{ vars.PIPELINE_PAUSED }}
+          CI_WORKFLOWS: ${{ inputs.ci_workflows }}
+        run: python3 "$PIPE/scripts/trigger_check.py"
+
+      - name: Mint the pipeline App token (this repo only, minimum permissions)
+        if: steps.trigger.outputs.allowed == 'true'
+        id: app
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          repositories: ${{ github.event.repository.name }}
+          permission-checks: write          # create/update the ready check; read check runs
+          permission-pull-requests: read    # find the PR and its review:* labels
+          permission-contents: read         # commits/<sha>/pulls
+
+      - name: Recompute the ready check
+        if: steps.trigger.outputs.allowed == 'true'
+        env:
+          APP_TOKEN: ${{ steps.app.outputs.token }}
+          PROJECT_TYPE: ${{ inputs.project_type }}
+        run: python3 "$PIPE/scripts/ready_check.py"

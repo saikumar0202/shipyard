@@ -26,6 +26,9 @@ on:
       max_turns:     { type: number, required: false, default: 0, description: "0 = role default" }
       ci_workflows:  { type: string, required: false, default: "", description: "Comma list of CI/preview workflow names (workflow_run trigger check)" }
       claude_code_version: { type: string, required: false, default: "2.1.330" }
+      toolchain:     { type: string, required: false, default: "", description: "Builder/reproducer: '' or 'pnpm' (Node + pnpm, deps installed before Claude)" }
+      node_version:  { type: string, required: false, default: "22" }
+      pnpm_version:  { type: string, required: false, default: "10.28.0" }
       attack_test:   { type: boolean, required: false, default: false, description: "attack-test.yml only: run tests/attack_shell.sh and a hand-written out.json" }
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: { required: true }
@@ -194,6 +197,24 @@ jobs:
           mkdir -p shipyard-probe && cp "$PIPE/tests/token_probe.py" shipyard-probe/
           echo "shipyard-probe/" >> .git/info/exclude
           "$PIPE/tests/attack_shell.sh"
+
+      - name: Set up Node (pnpm toolchain)
+        if: inputs.toolchain == 'pnpm' && (inputs.role == 'builder' || inputs.role == 'reproducer')
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - name: Install dependencies before Claude (non-AI; runs the project's install scripts, no secrets here)
+        if: inputs.toolchain == 'pnpm' && (inputs.role == 'builder' || inputs.role == 'reproducer')
+        env:
+          PNPM_VERSION: ${{ inputs.pnpm_version }}
+        run: |
+          set -euo pipefail
+          npm install -g --no-fund --no-audit "pnpm@${PNPM_VERSION}" > /dev/null
+          pnpm install --frozen-lockfile
+          if grep -q '"@playwright/test"' package.json; then
+            pnpm exec playwright install --with-deps chromium > /dev/null
+          fi
 
       - name: Install bubblewrap and socat (Claude's Bash sandbox, needed by CLAUDE_CODE_SUBPROCESS_ENV_SCRUB)
         run: |
