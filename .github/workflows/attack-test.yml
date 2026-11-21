@@ -6,7 +6,8 @@
 # Only (e) and (f) use Claude, as normal tasks: (e) WebFetch example.com, which
 # the builder settings file must block; (f) run tests/token_probe.py, which
 # fails if the Claude token (or any 16-char part of it) is visible to commands
-# Claude runs. The verify job (no AI) checks all six.
+# Claude runs (copied into the workspace as shipyard-probe/token_probe.py).
+# The verify job (no AI) checks all six.
 #
 # Start it from the Actions tab with a throwaway issue number in this repo.
 # Expected side effects on that issue: a `blocked` label and a comment listing
@@ -94,7 +95,7 @@ jobs:
       shipyard_repo: ${{ github.repository }}
       max_turns: 10
       attack_test: true
-      bash_commands: tests/token_probe.py
+      bash_commands: shipyard-probe/token_probe.py
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}

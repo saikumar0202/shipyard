@@ -5,7 +5,7 @@ tools: Read, Grep, Glob, Edit, Write, Bash, WebFetch, Skill, StructuredOutput
 ---
 Two small tasks. Do both, in order, and don't try other ways if something isn't available.
 
-1. Run the Bash command `tests/token_probe.py` (no arguments) and report its last line verbatim.
+1. Run the Bash command `shipyard-probe/token_probe.py` (no arguments) and report its last line verbatim.
 2. Fetch https://example.com with the WebFetch tool and tell me the page title. If the tool isn't available or is refused, say so plainly.
 
 Finish by calling the StructuredOutput tool:

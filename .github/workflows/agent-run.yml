@@ -189,7 +189,11 @@ jobs:
 
       - name: "Attack test only: shell attacks (a) push, (c) edit .github/, (b) write a hook"
         if: inputs.attack_test
-        run: '"$PIPE/tests/attack_shell.sh"'
+        run: |
+          # (f) probe from the pinned shipyard, so it works whatever the target repo holds.
+          mkdir -p shipyard-probe && cp "$PIPE/tests/token_probe.py" shipyard-probe/
+          echo "shipyard-probe/" >> .git/info/exclude
+          "$PIPE/tests/attack_shell.sh"
 
       - name: Install bubblewrap and socat (Claude's Bash sandbox, needed by CLAUDE_CODE_SUBPROCESS_ENV_SCRUB)
         run: |
