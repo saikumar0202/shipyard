@@ -17,6 +17,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import sys
 import time
 
@@ -89,11 +90,17 @@ def main():
                 if real in seen or "token-fp" in path:
                     continue
                 seen.add(real)
+                if time.time() - start > BUDGET_S:
+                    print("TOKEN_PROBE: incomplete (time budget) %s" % json.dumps(stats))
+                    return 3
                 try:
-                    if os.path.islink(path) or os.path.getsize(path) > MAX_FILE:
+                    st = os.lstat(path)
+                    # Regular files only: a FIFO or socket would block forever.
+                    if not stat.S_ISREG(st.st_mode) or st.st_size > MAX_FILE:
                         continue
-                    with open(path, "rb") as f:
-                        data = f.read()
+                    fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+                    with os.fdopen(fd, "rb") as f:
+                        data = f.read(MAX_FILE + 1)
                 except OSError:
                     continue
                 stats["files"] += 1
