@@ -26,7 +26,7 @@ def load(path):
 
 def parse_events(path):
     """Return (result, tools_available, tool_calls) from the stream-json events."""
-    result, tools, calls, names = None, None, {}, {}
+    result, tools, calls, names, so_call = None, None, {}, {}, None
     try:
         lines = open(path).read().splitlines()
     except OSError:
@@ -45,11 +45,32 @@ def parse_events(path):
                 continue
             if item.get("type") == "tool_use":
                 names[item.get("id")] = item.get("name")
+                if item.get("name") == "StructuredOutput" and isinstance(item.get("input"), dict):
+                    so_call = item["input"]
             elif item.get("type") == "tool_result":
                 name = names.get(item.get("tool_use_id"), "?")
                 c = calls.setdefault(name, {"ok": 0, "error": 0})
                 c["error" if item.get("is_error") else "ok"] += 1
+    # The CLI fills result.structured_output from Claude's StructuredOutput
+    # tool call; use the call itself if the result event lacks it.
+    if isinstance(result, dict) and not isinstance(result.get("structured_output"), dict) and so_call:
+        result = dict(result, structured_output=so_call, _structured_output_source="tool_call")
     return result, tools, calls
+
+
+def cli_summary(result):
+    """Claude's own outcome, separate from exit_reason (which a tamper or an
+    empty patch can override)."""
+    if not isinstance(result, dict):
+        return None
+    so = result.get("structured_output")
+    return {
+        "subtype": result.get("subtype"),
+        "is_error": result.get("is_error"),
+        "structured_output": ("missing" if not isinstance(so, dict)
+                              else result.get("_structured_output_source", "result")),
+        "result_excerpt": str(result.get("result") or "")[:300],
+    }
 
 
 def build(result, cli_exit, duration, out_dir, env, tools=None, calls=None):
@@ -82,6 +103,7 @@ def build(result, cli_exit, duration, out_dir, env, tools=None, calls=None):
         "pr_title": so.get("pr_title", ""),
         "pr_body": so.get("pr_body", ""),
         "has_patch": role in lib.WRITER_ROLES and not patch_empty and not tampered,
+        "cli": cli_summary(result),
         "tools_available": tools,
         "tool_calls": calls or {},
         "permission_denials": denials,

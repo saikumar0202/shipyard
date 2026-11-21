@@ -176,7 +176,8 @@ jobs:
           ]
           if role == "reviewer":
               lines.append("Diff to review: %s/diff.patch" % ctx)
-          lines.append("Read them, do your job as your agent file and skill describe, and return the structured output.")
+          lines.append("Read them and do your job as your agent file and skill describe.")
+          lines.append("Finish by calling the StructuredOutput tool with your answer; a plain-text answer is lost and the run is blocked.")
           open(os.path.join(ctx, "prompt.md"), "w").write("\n".join(lines) + "\n")
           PY
 

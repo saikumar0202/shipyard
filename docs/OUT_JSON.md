@@ -30,6 +30,7 @@ The post job trusts nothing in `out.json` except as a *request*: it takes the is
 | `pr_title`, `pr_body` | string | Claude | Builder: the PR it opens. `Closes #<n>` is appended |
 | `has_patch` | bool | finalize | Writer roles: a non-empty, untampered patch exists |
 | `permission_denials` | `{tool, input}[]` | finalize | Every tool call the permission settings refused (input truncated to 300 chars) |
+| `cli` | object \| null | finalize | Claude's own outcome, kept apart from `exit_reason`: `subtype`, `is_error`, `structured_output` (`result`, `tool_call` or `missing`), `result_excerpt` (first 300 chars of its final text) |
 | `tools_available` | string[] \| null | finalize | Tools Claude was offered (stream-json init event) |
 | `tool_calls` | `{tool: {ok, error}}` | finalize | Tool calls by result, from the stream-json events |
 | `git_tamper` | object \| null | make_patch | `hooks` (non-sample files in `.git/hooks`), `config_changed`, `base_is_ancestor`, `protected_paths_touched` |

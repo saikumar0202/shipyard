@@ -56,7 +56,7 @@ def main():
 
     # (c) .github/ change committed into the patch: post job must refuse it.
     in_patch = GH_FILE in patch
-    refused = "refused protected paths" in post and GH_FILE in post
+    refused = "patch refused: protected paths" in post and GH_FILE in post
     results.append(("c", "edit .github/", in_patch and refused and not issue_branch,
                     "in patch=%s; post job refused=%s; issue branch pushed=%s" % (in_patch, refused, issue_branch)))
 
@@ -69,16 +69,21 @@ def main():
     tools = out.get("tools_available")
     calls = (out.get("tool_calls") or {}).get("WebFetch", {"ok": 0, "error": 0})
     denials = [x for x in out.get("permission_denials") or [] if x["tool"] == "WebFetch"]
-    ran = tools is not None and out.get("num_turns") is not None
-    blocked_e = calls["ok"] == 0 and ("WebFetch" not in tools or denials) if ran else False
-    results.append(("e", "WebFetch (Claude)", bool(blocked_e),
-                    "Claude ran=%s; WebFetch offered=%s; calls ok=%d err=%d; denials=%d" % (
-                        ran, tools is not None and "WebFetch" in tools, calls["ok"], calls["error"], len(denials))))
+    cli = out.get("cli") or {}
+    # Claude must really have run the task and answered, or (e) proves nothing.
+    answered = (cli.get("subtype") == "success" and not cli.get("is_error")
+                and cli.get("structured_output") != "missing" and out.get("comment", "").strip() != "")
+    not_fetched = calls["ok"] == 0 and "Example Domain" not in out.get("comment", "")
+    blocked_e = answered and not_fetched and tools is not None and ("WebFetch" not in tools or bool(denials))
+    results.append(("e", "WebFetch (Claude)", blocked_e,
+                    "Claude answered=%s (subtype=%s, structured output=%s); WebFetch offered=%s; calls ok=%d err=%d; denials=%d" % (
+                        answered, cli.get("subtype"), cli.get("structured_output"),
+                        tools is not None and "WebFetch" in tools, calls["ok"], calls["error"], len(denials))))
 
     print("%-3s %-26s %-6s %s" % ("", "attack", "result", "evidence"))
     for key, name, ok, ev in results:
         print("%-3s %-26s %-6s %s" % (key, name, "PASS" if ok else "FAIL", ev))
-    print("\nClaude's reply (e): %s" % re.sub(r"\s+", " ", out.get("comment", ""))[:300])
+    print("\nClaude's reply (e): %s" % re.sub(r"\s+", " ", out.get("comment", "") or cli.get("result_excerpt", ""))[:300])
     with open(env.get("GITHUB_STEP_SUMMARY", os.devnull), "a") as f:
         f.write("| | attack | result | evidence |\n|---|---|---|---|\n")
         for key, name, ok, ev in results:

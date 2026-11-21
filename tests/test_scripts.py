@@ -204,6 +204,17 @@ class Finalize(unittest.TestCase):
         result, tools, calls = finalize_out.parse_events(path)
         self.assertEqual((result["num_turns"], tools, calls), (2, ["Read", "Write"], {"WebFetch": {"ok": 0, "error": 1}}))
 
+    def test_structured_output_from_tool_call(self):
+        tmp = tempfile.mkdtemp()
+        ev = [{"type": "assistant", "message": {"content": [
+                  {"type": "tool_use", "id": "s1", "name": "StructuredOutput", "input": {"comment": "hi", "labels_add": []}}]}},
+              {"type": "result", "subtype": "success", "is_error": False, "num_turns": 1}]
+        path = os.path.join(tmp, "events.jsonl")
+        open(path, "w").write("\n".join(json.dumps(e) for e in ev))
+        result, _, _ = finalize_out.parse_events(path)
+        out = finalize_out.build(result, 0, 1, tmp, {"ROLE": "planner", "ISSUE": "1"})
+        self.assertEqual((out["exit_reason"], out["comment"], out["cli"]["structured_output"]), ("success", "hi", "tool_call"))
+
     def test_out_json(self):
         tmp = tempfile.mkdtemp()
         open(os.path.join(tmp, "changes.patch"), "w").write("From abc\n")
