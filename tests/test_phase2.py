@@ -8,6 +8,7 @@ import unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "scripts"))
 import ready_check  # noqa: E402
+import review_plan  # noqa: E402
 import repro_guard  # noqa: E402
 import route  # noqa: E402
 
@@ -99,6 +100,15 @@ class ReproGuard(unittest.TestCase):
         self.assertEqual(repro_guard.linked_issue("Does a thing\n\nCloses #12"), 12)
         self.assertEqual(repro_guard.linked_issue("fixes #3"), 3)
         self.assertIsNone(repro_guard.linked_issue("see #4"))
+
+
+class ReviewPlan(unittest.TestCase):
+    def test_always_code_and_qa_plus_panel_labels(self):
+        pr = {"number": 9, "body": "Adds x\n\nCloses #4", "labels": [{"name": "review:ui"}, {"name": "review:qa"}, {"name": "bug"}]}
+        self.assertEqual(review_plan.plan(pr), (["code", "qa"], 4, ["ui"]))
+
+    def test_issue_falls_back_to_pr(self):
+        self.assertEqual(review_plan.plan({"number": 9, "body": None, "labels": []})[1], 9)
 
 
 class Ready(unittest.TestCase):
