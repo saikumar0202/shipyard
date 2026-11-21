@@ -38,6 +38,19 @@ class Labels(unittest.TestCase):
         self.assertEqual(lib.filter_labels("planner", None, [], ["review:code"])[2], ["review:code"])
 
 
+class AgentFiles(unittest.TestCase):
+    def test_every_agent_can_return_structured_output(self):
+        # With --agent, the tools: list is an exact allowlist; without
+        # StructuredOutput an agent can never return its answer.
+        import glob
+        files = glob.glob(os.path.join(lib.ROOT, "agents", "*.md")) + glob.glob(os.path.join(lib.ROOT, "tests", "agents", "*.md"))
+        self.assertTrue(files)
+        for f in files:
+            tools = [l for l in open(f).read().splitlines() if l.startswith("tools:")][0]
+            self.assertIn("StructuredOutput", tools, f)
+            self.assertNotIn("WebFetch", tools if "tests" not in f else "", f)
+
+
 class Paths(unittest.TestCase):
     def test_protected(self):
         self.assertEqual(lib.protected_paths([".github/workflows/x.yml", ".claude/settings.json", "pipeline.yml",
@@ -139,7 +152,7 @@ class Settings(unittest.TestCase):
     def test_readonly_roles(self):
         for role in ("planner", "reviewer"):
             allow = make_settings.build(role, "/w", [])["permissions"]["allow"]
-            self.assertEqual(sorted(allow), ["Glob", "Grep", "Read", "Skill"])
+            self.assertEqual(sorted(allow), ["Glob", "Grep", "Read", "Skill", "StructuredOutput"])
             with self.assertRaises(ValueError):
                 make_settings.build(role, "/w", ["pnpm test"])
 

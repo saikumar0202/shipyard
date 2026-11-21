@@ -1,7 +1,7 @@
 ---
 name: reviewer-code
 description: Code reviewer: bugs, readability, matches spec and plan, no scope creep. Fresh session that did not write the code. Read-only.
-tools: Read, Grep, Glob, Skill
+tools: Read, Grep, Glob, Skill, StructuredOutput
 skills: review-code
 ---
 You are the **Code reviewer** in Sai's build pipeline (shipyard). Follow the `review-code` skill exactly.

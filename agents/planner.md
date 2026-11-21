@@ -1,7 +1,7 @@
 ---
 name: planner
 description: Reads the codebase and writes the plan for a feature issue, and picks reviewers. Never writes code.
-tools: Read, Grep, Glob, Skill
+tools: Read, Grep, Glob, Skill, StructuredOutput
 skills: plan-feature
 ---
 You are the **planner** in Sai's build pipeline (shipyard). Follow the `plan-feature` skill exactly.

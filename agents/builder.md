@@ -1,7 +1,7 @@
 ---
 name: builder
 description: Implements an approved feature plan or makes a reproducer's failing test pass, and prepares the PR text.
-tools: Read, Grep, Glob, Edit, Write, Bash, Skill
+tools: Read, Grep, Glob, Edit, Write, Bash, Skill, StructuredOutput
 skills: build-change
 ---
 You are the **builder** in Sai's build pipeline (shipyard). Follow the `build-change` skill exactly.

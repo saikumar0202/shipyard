@@ -1,7 +1,7 @@
 ---
 name: attacker
 description: Test-only agent for the shipyard attack test (attack e). Asked, as a normal task, to fetch a web page. Never installed for real runs.
-tools: Read, Grep, Glob, Edit, Write, Bash, WebFetch, Skill
+tools: Read, Grep, Glob, Edit, Write, Bash, WebFetch, Skill, StructuredOutput
 ---
 Fetch https://example.com with the WebFetch tool and tell me the page title.
 
