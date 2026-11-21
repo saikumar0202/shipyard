@@ -172,6 +172,12 @@ class PostDecide(unittest.TestCase):
         self.assertIsNone(d["push"])
         self.assertTrue(any("refused labels" in p and "attack-test-pwned" in p for p in d["problems"]))
 
+    def test_deliberate_stop_without_code_is_not_blocked(self):
+        d = post_apply.decide(self.out(has_patch=False, labels_add=["needs-human"]), self.env)
+        self.assertEqual((d["problems"], d["push"], d["add"]), ([], None, ["needs-human"]))
+        d = post_apply.decide(self.out(has_patch=False), self.env)
+        self.assertEqual(d["problems"], ["no changes produced (empty patch)"])
+
     def test_issue_only_event_never_pushes(self):
         d = post_apply.decide(self.out(), dict(self.env, CAN_WRITE_CODE="false"))
         self.assertIsNone(d["push"])

@@ -17,6 +17,7 @@
     {"name": "needs-info",       "color": "fbca04", "description": "Couldn't reproduce",                              "agents": ["reproducer"]},
     {"name": "needs-spec",       "color": "fbca04", "description": "Needs a product decision",                        "agents": ["reproducer"]},
     {"name": "queued",           "color": "ededed", "description": "Waiting for the WIP limit",                       "agents": []},
+    {"name": "ai-review",        "color": "0e8a16", "description": "Run AI review on this PR (you, or the post job on builder PRs)", "agents": []},
     {"name": "blocked",          "color": "b60205", "description": "An agent stopped; reason in a comment",           "agents": []},
     {"name": "needs-human",      "color": "b60205", "description": "Protected files or a wrong reproducer test",      "agents": ["builder"]},
     {"name": "parked",           "color": "ededed", "description": "Stopped",                                        "agents": []},
@@ -27,6 +28,7 @@
   "generated": {
     "review":   {"color": "c2e0c6", "description": "Reviewer to run on the PR", "agents": ["planner", "reproducer"]},
     "must_fix": {"color": "e99695", "description": "Reviewer found must-fix items", "agents": ["reviewer:self"]},
+    "missed":   {"color": "d4c5f9", "description": "That reviewer missed a real bug (for the checklist curator, after the pilot)", "agents": []},
     "bot_run":  {"count": 4, "color": "ededed", "description": "Run budget counter"},
     "budget":   {"count": 4, "color": "ededed", "description": "One extra builder run"}
   }

@@ -151,6 +151,10 @@ jobs:
           cp "$PIPE"/agents/*.md ~/.claude/agents/
           cp -r "$PIPE"/skills/. ~/.claude/skills/
           if [ -f "$PIPE/tests/agents/$AGENT.md" ]; then cp "$PIPE/tests/agents/$AGENT.md" ~/.claude/agents/; fi
+          # Every agent pins its model in its file; never fall back to the default.
+          model=$(sed -n 's/^model: *\([A-Za-z0-9._-]*\) *$/\1/p' ~/.claude/agents/"$AGENT".md | head -n 1)
+          [ -n "$model" ] || { echo "::error::agent $AGENT has no model: line"; exit 1; }
+          echo "MODEL=$model" >> "$GITHUB_ENV"
           # Per-agent permissions, plus the project's Bash commands for writers.
           printf '%s\n' "$BASH_COMMANDS" | python3 "$PIPE/scripts/make_settings.py" "$ROLE" "$GITHUB_WORKSPACE" "$RUNNER_TEMP/settings.json"
           # Role default max turns.
@@ -262,6 +266,7 @@ jobs:
           # no bypass mode; anything not allowed by the settings file is denied.
           claude -p \
             --agent "$AGENT" \
+            --model "$MODEL" \
             --settings "$RUNNER_TEMP/settings.json" \
             --permission-mode default \
             --max-turns "$MAX_TURNS" \

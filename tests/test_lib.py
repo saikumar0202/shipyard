@@ -138,6 +138,22 @@ class Classify(unittest.TestCase):
         self.assertEqual(lib.classify_result(None, 1, "planner", True, False), "cli_error")
         self.assertEqual(lib.classify_result({"subtype": "success", "is_error": False}, 0, "planner", True, False), "bad_output")
 
+    def test_stopping_on_purpose_is_not_empty_patch(self):
+        def res(labels):
+            return {"subtype": "success", "is_error": False, "structured_output": {"comment": "c", "labels_add": labels}}
+        self.assertEqual(lib.classify_result(res(["needs-human"]), 0, "builder", True, False), "success")
+        for l in ("manual-repro", "needs-info", "needs-spec"):
+            self.assertEqual(lib.classify_result(res([l, "review:qa"]), 0, "reproducer", True, False), "success")
+        self.assertEqual(lib.classify_result(res(["repro-ok"]), 0, "reproducer", True, False), "empty_patch")
+        self.assertEqual(lib.classify_result(res(["needs-human"]), 0, "reproducer", True, False), "empty_patch")
+
+    def test_ai_review_and_missed_never_from_agents(self):
+        for role in ("planner", "reproducer", "builder"):
+            for l in ("ai-review", "missed:code", "missed:qa"):
+                self.assertEqual(lib.filter_labels(role, None, [l], [])[2], [l])
+        self.assertIn("ai-review", lib.all_label_names())
+        self.assertIn("missed:qa", lib.all_label_names())
+
 
 class Settings(unittest.TestCase):
     def test_no_web_tools_and_no_skip(self):

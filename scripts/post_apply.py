@@ -87,7 +87,8 @@ def decide(out, env):
     push = None
     if role in lib.WRITER_ROLES and not problems:
         if not out.get("has_patch"):
-            problems.append("no changes produced (empty patch)")
+            if not lib.no_patch_expected(role, out.get("labels_add")):
+                problems.append("no changes produced (empty patch)")
         elif env.get("CAN_WRITE_CODE") != "true":
             problems.append("this event may not write code; patch not pushed")
         else:
@@ -142,8 +143,10 @@ def main():
     if problems:
         reason = "; ".join(problems)
         gh("POST", "/repos/{repo}/issues/%d/labels" % issue, {"labels": ["blocked"]})
-        body = (marker(working_key) + "\n**Blocked.** %s\n\nWhat I need from you: read the run log, fix the cause, "
-                "then remove `blocked` to retry.%s" % (reason, footer))
+        agent_said = clean(out.get("comment")).strip()
+        body = (marker(working_key) + "\n**Blocked.** %s\n\n%sWhat I need from you: read the run log, fix the cause, "
+                "then remove `blocked` to retry.%s" % (
+                    reason, ("**The agent's own report:**\n\n" + agent_said + "\n\n---\n\n") if agent_said else "", footer))
         upsert_comment(gh, issue, working_key, body, bot)
         if d["check"]:
             target_sha = env["HEAD_SHA"]
@@ -153,7 +156,7 @@ def main():
     else:
         target = pr if (role == "reviewer" and pr) else issue
         if role == "builder":
-            target = open_or_find_pr(gh, env, out, issue) or issue
+            target = open_or_find_pr(gh, env, out, issue, create=bool(pushed_sha)) or issue
         if d["add"]:
             gh("POST", "/repos/{repo}/issues/%d/labels" % target, {"labels": d["add"]})
         for name in d["remove"]:
@@ -180,12 +183,15 @@ def main():
     print("\npost job: %s" % ("BLOCKED: " + "; ".join(problems) if problems else "applied"))
 
 
-def open_or_find_pr(gh, env, out, issue):
-    """Builder: open the PR for issue-<n> if none is open; copy review:* labels."""
+def open_or_find_pr(gh, env, out, issue, create=True):
+    """Builder: open the PR for issue-<n> if none is open (only after a push);
+    copy review:* labels and add ai-review."""
     owner = env["GITHUB_REPOSITORY"].split("/")[0]
     status, prs, _ = gh("GET", "/repos/{repo}/pulls?state=open&head=%s:%s" % (owner, env["BRANCH"]))
     if status == 200 and prs:
         return prs[0]["number"]
+    if not create:
+        return None
     status, iss, _ = gh("GET", "/repos/{repo}/issues/%d" % issue)
     title = (out.get("pr_title") or (iss or {}).get("title") or env["BRANCH"])[:120]
     body = clean(out.get("pr_body")) + "\n\nCloses #%d" % issue
@@ -194,10 +200,10 @@ def open_or_find_pr(gh, env, out, issue):
                             "base": (meta or {}).get("default_branch", "main"), "body": body})
     if status != 201:
         return None
+    # Builder PRs always get AI review (ai-review), plus the issue's reviewers.
     reviewers = [l["name"] for l in (iss or {}).get("labels", []) if l["name"].startswith("review:")
                  and l["name"][7:] in lib.panel()]
-    if reviewers:
-        gh("POST", "/repos/{repo}/issues/%d/labels" % created["number"], {"labels": reviewers})
+    gh("POST", "/repos/{repo}/issues/%d/labels" % created["number"], {"labels": ["ai-review"] + reviewers})
     return created["number"]
 
 

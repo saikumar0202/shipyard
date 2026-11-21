@@ -48,8 +48,6 @@ On your computer: `claude setup-token`. Copy the token. It lasts a year: open a 
 
 Dependabot PRs get the code reviewer only if `CLAUDE_CODE_OAUTH_TOKEN` and `APP_PRIVATE_KEY` are also added under **Dependabot** secrets.
 
-The design doc lists an `APP_ID` secret; the pipeline uses the App's Client ID instead, as the repo variable `APP_CLIENT_ID` (`actions/create-github-app-token` deprecated `app-id`).
-
 ### 5. Variables (same page → Variables)
 
 | Variable | Value |
@@ -68,7 +66,9 @@ With the GitHub CLI logged in as you, from a shipyard checkout:
 scripts/setup-labels.sh saikumar0202/<repo>
 ```
 
-It creates or updates every label in the labels table, `review:` and `must-fix:` labels for the active panel only (`code`, `qa`), `bot-run-1`…`bot-run-4` and `budget+1`…`budget+4`. It deletes nothing.
+It creates or updates every label in the labels table (including `ai-review`), `review:`, `must-fix:` and `missed:` labels for the active panel only (`code`, `qa`), `bot-run-1`…`bot-run-4` and `budget+1`…`budget+4`. It deletes nothing.
+
+AI review is opt-in: a PR gets the code and QA reviewers only when it has the `ai-review` label. Add it to your own PRs when you want a review; the pipeline adds it to every PR the builder opens.
 
 ### 7. Pipeline-log issue
 

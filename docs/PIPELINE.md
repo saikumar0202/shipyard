@@ -1,14 +1,44 @@
 # Sai's Build Pipeline — Full Picture
 
-One process for every product, from the first idea through build, release and life after launch. It runs on GitHub, uses Claude Code through your Max subscription, and shows its state on a GitHub Projects board. Version 4.3, revised after six outside reviews. This is the final paper version. Frozen for building: the next review is of the real workflow files after five real changes, not of this doc.
+One process for every product, from the first idea through build, release and life after launch. It runs on GitHub, uses Claude Code through your Max subscription, and shows its state on a GitHub Projects board. Version 4.4 (4.3 revised after six outside reviews, plus the 4.4 changes listed at the end). 4.3 was the final paper version. Frozen for building: the next review is of the real workflow files after five real changes, not of this doc.
 
 ## The flow at a glance
 
-&#91;embedded content: build stage · features: approved + your review; fixes: your review (hold optional)\]
+```mermaid
+flowchart TD
+  %% Generated from the Handoffs table (build stage). ✋ = your action.
+  FO["Feature issue opened"] -->|"spec: off"| PL["Planner: plan + reviewer labels"]
+  FO -->|"spec: on"| SW["Spec writer"]
+  SW --> SO["✋ spec-ok"] --> PL
+  FL["feature label added to an existing issue"] --> PL
+  PL --> AP["✋ approved"]
+  BO["Bug issue opened"] --> RP["Reproducer"]
+  RP -->|"needs-info"| NI["Stops: you add information"]
+  RP -->|"needs-spec"| FL
+  RP -->|"repro-ok or manual-repro, no hold"| BU
+  HR["✋ hold removed, or approved on the bug,<br/>while repro-ok or manual-repro is present"] --> BU
+  AP --> BU["Builder: branch issue-n, PR with Closes #n"]
+  MF["must-fix-pending on the PR"] --> BU
+  NC["✋ needs-changes on the PR"] --> BU
+  BU --> CI["CI test job"]
+  CI -->|"passes, PR has ai-review"| RV["Review job: code, QA, non-visual reviewers"]
+  RV -->|"must-fix items"| MF
+  DS["deployment_status success:<br/>PR commit or release candidate"] --> E2E["e2e, Lighthouse, then UI reviewer"]
+  CI --> WR["workflow_run completed"]
+  RV --> WR
+  E2E --> WR
+  WR --> RD["ready check recomputed"]
+  RD --> YR["✋ Your review"]
+  YR -->|"merge"| MN["main: preview only"]
+  YR --> NC
+  BL["✋ blocked removed"] -->|"budget+1"| RT["The step that failed, again"]
+  AT["Comment starting @claude"] --> RA["Routed agent"]
+  TG["✋ v* tag pushed by you, matching the candidate sha"] --> RL["Release workflow"]
+```
 
 Features pass one gate before code (`approved`; `spec-ok` too once the spec writer is on). Both tracks share CI, review and your merge. Nothing merges, tags, deploys or publishes without you.
 
-**Feature track:** feature issue → planner posts the plan and picks reviewers → ✋ `approved` → builder opens a PR → CI → reviewers (after CI passes) → ✋ your review → merge to main (preview only).
+**Feature track:** feature issue → planner posts the plan and picks reviewers → ✋ `approved` → builder opens a PR (with `ai-review`) → CI → reviewers (after CI passes) → ✋ your review → merge to main (preview only).
 
 **Fix track:** bug issue → reproducer pushes a failing test and adds `repro-ok` → builder fixes it (unless `hold`) → CI → reviewers → ✋ your review → merge to main (preview only).
 
@@ -30,8 +60,10 @@ Features pass one gate before code (`approved`; `spec-ok` too once the spec writ
 | `repro-ok` | Reproducer pushed a failing test; starts the builder | Reproducer |
 | `manual-repro` | Reproduced, but no automated test is possible; exact manual steps are in a comment. Starts the builder | Reproducer |
 | `hold` | Don't build the fix until you remove it | You |
+| `ai-review` | Run AI review on this PR. Without it a PR gets CI only | You, or the post job on every PR the builder opens |
 | `review:<name>` | A reviewer from the active panel to run on the PR | Planner or reproducer; you can add or remove |
 | `must-fix:<name>` | That reviewer found must-fix items; it reruns on the next push | Review job |
+| `missed:<name>` | That reviewer missed a real bug; input for the checklist curator (after the pilot) | You |
 | `must-fix-pending` | Starts the builder to fix review findings | Review job |
 | `needs-changes` | Your request for changes; starts the builder | You |
 | `needs-info`, `needs-spec` | Couldn't reproduce, or the bug needs a product decision | Reproducer |
@@ -61,7 +93,7 @@ Every step starts from one event. The builder checks for `hold` when it starts, 
 | `hold` removed, or `approved` added to a bug, while `repro-ok` or `manual-repro` is present | Builder (otherwise nothing starts, and the workflow comments why) |
 | `approved` added to a feature | Builder |
 | `must-fix-pending` or `needs-changes` on a PR | Builder |
-| CI `test` job passes on the PR | Review job: code, QA and non-visual reviewers |
+| CI `test` job passes on a PR that has `ai-review` (or `ai-review` is added to the PR) | Review job: code, QA and non-visual reviewers |
 | `deployment_status` success for a PR's commit or a release candidate | e2e, Lighthouse, then the UI and accessibility reviewer |
 | CI or preview workflow completes (`workflow_run`) | Merge-readiness recompute (the `ready` check) |
 | `blocked` removed by you | The step that failed, with `budget+1` added |
@@ -88,7 +120,7 @@ Every step starts from one event. The builder checks for `hold` when it starts, 
 
 ### 3. Build
 
-- The builder works on branch `issue-<number>` and opens a PR whose body says `Closes #<issue>`. It copies the issue's `review:*` labels onto the PR.
+- The builder works on branch `issue-<number>` and opens a PR whose body says `Closes #<issue>`. It copies the issue's `review:*` labels onto the PR, and the post job adds `ai-review` to every PR the builder opens.
 - **Fixes:** it starts from the reproducer's failing test and makes it pass. The reproducer's commit is recorded in a `repro-sha` comment, and the builder may not modify or delete files added in that commit. A CI step, `repro-guard`, diffs those files against `repro-sha` and fails if they changed. If the test itself is wrong, the builder adds `needs-human` and explains why instead of editing it. After you comment "@claude fix the test: \<reason>", the reproducer (never the builder) rewrites the test and records a new `repro-sha`, then the builder continues; you check the result at your review.
 - **Before review,** the workflow merges main into the branch. On a conflict the builder resolves it once (counts against the run budget), otherwise `blocked`.
 - **Protected files:** the builder never stages `.claude/`, `.github/` or `pipeline.yml`; its prompt says so, and a PR that changes them gets `needs-human`: AI review still runs, but no AI rework.
@@ -106,11 +138,12 @@ Every step starts from one event. The builder checks for `hold` when it starts, 
 
 ### 5. AI review
 
+- **Opt-in:** AI review runs only on PRs with the `ai-review` label. PRs you open get CI only, unless you add `ai-review`. The post job adds it to every PR the builder opens.
 - **When:** code, QA and the non-visual reviewers run in the CI workflow as `needs: [test]`, so only after CI passes. On web projects the UI and accessibility reviewer runs in the `deployment_status` workflow, after e2e and Lighthouse, using `target_url` and the bypass header, so it can open the real preview and read those results. Each reviewer is a fresh session that did not write the code.
 - **Who:** code and QA always, plus at most 3 panel reviewers by default; more only when you add the labels yourself.
 - **Output:** each reviewer sets its own check run (`review/<name>`: success, or failure when it has must-fix items) and keeps one sticky comment that it updates instead of adding new ones.
 - **Must-fix:** a failing reviewer adds `must-fix:<name>`; the review job then adds `must-fix-pending`, which starts the builder. On the next push the matrix runs code, QA and only the reviewers with a `must-fix:<name>` label, and removes the label when that reviewer passes. At most 1 automatic must-fix round per issue in version 1 (2 later); after that the review job adds `blocked` instead.
-- **Merge readiness:** a third small workflow runs on `workflow_run` (completed) for the CI and preview workflows. Every time either finishes, it recomputes from the check runs on the PR's head commit and creates or updates one `ready` check. Required checks depend on the project type in `pipeline.yml`: web needs `test`, e2e, and every `review/<name>` check whose `review:<name>` label is on the PR (the UI reviewer only when `review:ui` is on it); other types need `test` and `review/*` only. It fails when CI is red. The `ready` check is what moves the card to Your Review.
+- **Merge readiness:** a third small workflow runs on `workflow_run` (completed) for the CI and preview workflows. Every time either finishes, it recomputes from the check runs on the PR's head commit and creates or updates one `ready` check. Required checks depend on the project type in `pipeline.yml`: web needs `test` and e2e; other types need `test`. Only when the PR has `ai-review` are reviewers required too: `review/code`, `review/qa`, and every `review/<name>` check whose `review:<name>` label is on the PR (the UI reviewer only when `review:ui` is on it). Without `ai-review`, CI alone decides. It fails when CI is red. The `ready` check is what moves the card to Your Review.
 - **`needs-human` PRs** get the full review (comments and checks). Protected-file PRs get no AI rework, because the push job refuses those paths, so you fix them by hand. Wrong-test PRs are reworked by the reproducer after your "@claude fix the test" comment.
 
 ### 6. Your review and deploy
@@ -136,11 +169,12 @@ A comment starting with `@claude` is routed by the issue's state. Before `approv
 | Reproducer | Pushes the failing test, picks reviewers, or flags needs-info / needs-spec | Build (fixes), Operate |
 | Builder | Writes the code and opens or updates the PR | Build, Operate |
 | Reviewers | One agent per reviewer in the active panel | Build, Operate |
+| Checklist curator (after the pilot) | Proposes small reviewer-checklist changes from `missed:<name>` labels, as a PR in `shipyard` | Build |
 | Release manager | Builds the release candidate and checklist, runs the Agent rows, drafts notes | Release |
 | Incident lead | Triage help, the hotfix plan and the postmortem | Operate |
 | Metrics analyst | Monthly report against the brief's success metric | Learn |
 
-Each agent is a Claude Code subagent file following a skill, kept in `shipyard` and copied in at run time (see What lives where).
+Each agent is a Claude Code subagent file following a skill, kept in `shipyard` and copied in at run time (see What lives where). Every agent file pins its model: the planner on Opus; the builder, reproducer and reviewers on Sonnet. No agent runs on the default model. Every skill has the same eight sections (role, trigger and inputs, allowed actions, hard rules, procedure, stop conditions, output contract, self-check), and a shipyard test fails if one is missing or if a skill's allowed actions differ from its settings file.
 
 ## Reviewers
 
@@ -158,6 +192,10 @@ The planner (features) or reproducer (fixes) picks reviewers and lists them in t
 | Data and API | Calculations, chart values, API contracts, migrations, save files | Numbers, charts, APIs, schema or save format changes |
 | Game feel | Physics, controls, balance, progression, audio | Game mechanics, levels, rewards, sound |
 | AI safety and quality | Prompt injection, unsafe tool use, response quality | Prompts, models or tools change |
+
+### Checklist curator (after the pilot)
+
+Not built yet. When you add `missed:<name>` to a PR or bug (that reviewer missed a real bug), the checklist curator reads the PR or bug and that reviewer's checklist (its skill in `shipyard`) and opens a PR in `shipyard` with one small checklist change. It never edits a checklist directly; you review and merge the PR, and a new `shipyard` tag carries it to projects.
 
 ### Reviewer library
 
@@ -234,7 +272,7 @@ A product moves through five stages: Discover & Define → Build → Release →
 ### 4. Operate — keep it healthy
 
 - **Always on (tools picked per product in the brief):** crash and error reporting (for example Sentry), uptime checks (for example UptimeRobot), Dependabot. Alerts open `incident` issues through `repository_dispatch`, not by an agent polling.
-- **Dependabot PRs** get CI and the code reviewer only, if `CLAUDE_CODE_OAUTH_TOKEN`, `APP_ID` and `APP_PRIVATE_KEY` are also added as Dependabot secrets.
+- **Dependabot PRs** get CI and the code reviewer only, if `CLAUDE_CODE_OAUTH_TOKEN` and `APP_PRIVATE_KEY` are also added as Dependabot secrets.
 - **sev:1 (down or data loss):** web and desktop, roll back to the previous release (`RUNBOOK.md`). Android, halt the staged rollout in Play Console, turn off the feature flag through Firebase Remote Config if the project uses it, and ship a hotfix with a higher version code. Without remote flags, sev:1 on Android always means a hotfix build. Agents only write the postmortem.
 - **sev:2 (major feature broken):** fix track with code and QA only. The fix PR targets a `release/<version>` branch made from the tag, and the workflow opens a second PR cherry-picking it onto main. The incident closes only when both are merged, then a patch release ships.
 - **If agents are unavailable** (limits or outage), you follow `RUNBOOK.md` yourself.
@@ -303,11 +341,11 @@ Templates live in each repo's `.github/ISSUE_TEMPLATE`, added by the setup scrip
 - **Callers:** one caller workflow for all issue and label events (`pipeline-events.yml`). A first tiny job picks the route and the agent jobs use job-level `if:` conditions, so a skipped route costs nothing. `pull_request`, `deployment_status`, `workflow_run` (the `ready` check), tag pushes (release) and `schedule` each have their own caller.
 - **Secrets:**
   - `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token`. It lasts a year; the setup script opens a reminder issue due 11 months later. Never add an API key next to it, because an API key takes priority.
-  - `APP_ID` and `APP_PRIVATE_KEY` for the pipeline GitHub App.
+  - `APP_PRIVATE_KEY` for the pipeline GitHub App, with its Client ID in the repo variable `APP_CLIENT_ID` (not a secret).
   - `PROJECT_TOKEN` for the board sync: a classic PAT with only the project scope.
   - `VERCEL_AUTOMATION_BYPASS_SECRET` for e2e tests on protected previews.
   - Android: `PLAY_SERVICE_ACCOUNT_JSON`, `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, declared only by the release job (in a `release` environment on public repos).
-  - Dependabot secrets: `CLAUDE_CODE_OAUTH_TOKEN`, `APP_ID`, `APP_PRIVATE_KEY`, if Dependabot PRs should get the code reviewer.
+  - Dependabot secrets: `CLAUDE_CODE_OAUTH_TOKEN`, `APP_PRIVATE_KEY`, if Dependabot PRs should get the code reviewer.
 
 ## Guardrails
 
@@ -361,7 +399,7 @@ Templates live in each repo's `.github/ISSUE_TEMPLATE`, added by the setup scrip
 - One agent-job/post-job pattern shared by every agent: a read-only agent job writes `out.json` (plus a patch for the reproducer and builder); a non-AI post job does every write.
 - Per-agent permission settings files in `shipyard`; permission checks never skipped; no web tools except the product writer; the token only in the Claude step.
 - Post-job rules: label allowlist, owned check names, path, LFS and branch checks, no repo code run.
-- Vercel: Production Branch set to `production`; Protection Bypass for Automation confirmed on the free plan. Secrets: `CLAUDE_CODE_OAUTH_TOKEN`, `APP_ID`, `APP_PRIVATE_KEY`, `VERCEL_AUTOMATION_BYPASS_SECRET`.
+- Vercel: Production Branch set to `production`; Protection Bypass for Automation confirmed on the free plan. Secrets: `CLAUDE_CODE_OAUTH_TOKEN`, `APP_PRIVATE_KEY`, `VERCEL_AUTOMATION_BYPASS_SECRET`; variable `APP_CLIENT_ID`.
 - Callers: events (job-level routing), `pull_request`, `deployment_status`, and the `workflow_run` `ready` recompute; trigger check and prompt input filter.
 - Templates: feature and bug. Labels as in the labels table, with `review:code` and `review:qa` as the only reviewer labels.
 - `spec: off`. Planner; reproducer with `repro-guard` and `manual-repro`; builder at WIP 1 (counting the reproducer); run budget from labels; one must-fix round; the `needs-human` test-fix route.
@@ -404,3 +442,4 @@ Templates live in each repo's `.github/ISSUE_TEMPLATE`, added by the setup scrip
 - **4.1:** the agent never holds push credentials; actor-gated release workflow with signing secrets only in the release job; `ready` check recomputed on `workflow_run` and based on project type; `manual-repro` for bugs that can't get an automated test; prompt input filter and public-log rules; release candidates get e2e and UI review; ads, Play Billing and kill-switch rows; WIP limit counts the reproducer; run budget formula.
 - **4.2:** pilot is a public web repo, Walkies second; push split enforced by two jobs with the Claude CLI instead of the action; `needs-human` split by cause; `monetisation` field in `pipeline.yml`; reviewer cap simplified to the matrix limit; Actions minutes and LFS rules for private game repos.
 - **4.3:** agent-job/post-job pattern for every agent, not just the builder; per-agent tool permissions with no permission skipping; `ready` check requires only labeled reviewers; working/result comment replaces live progress; post job refuses LFS paths and runs no repo code; leftover edits committed before the patch; pinned pipeline-log issue. Final paper version: the next review is of real workflow files.
+- **4.4:** strict skills, ai-review opt-in label, checklist curator (planned), pinned models, Mermaid flowchart.

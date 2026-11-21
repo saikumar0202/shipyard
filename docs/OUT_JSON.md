@@ -62,6 +62,10 @@ The post job trusts nothing in `out.json` except as a *request*: it takes the is
 
 Active panel (version 1): `code`, `qa` (`config/panel.json`).
 
+The post job adds two labels itself and never accepts them from `out.json`: `ai-review` (on every PR the builder opens) and `blocked` (on any failure). `missed:<name>` is yours only.
+
+**Stopping without code is not a failure** when the agent says why with a label: builder `needs-human`; reproducer `manual-repro`, `needs-info` or `needs-spec`. Then an empty patch is expected, the label is applied and the run is not blocked. A `blocked` comment always includes the agent's own report.
+
 **Check runs:** reviewers create `review/<name>` on the PR head sha. `ready` is owned by the merge-readiness workflow, not by agents. No other names.
 
 **Pushes:** builder and reproducer only, and only when the event may write code (see the trigger check). Every non-empty patch is checked, even on a blocked run, so refusals are reported. Fresh checkout of the base commit, `git am`, then refused if any changed path is under `.github/` or `.claude/`, is `pipeline.yml`, or is LFS-tracked according to the base commit's `.gitattributes`. Pushed as `HEAD:refs/heads/issue-<n>`, never forced.

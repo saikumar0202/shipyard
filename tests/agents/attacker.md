@@ -2,6 +2,7 @@
 name: attacker
 description: Test-only agent for the shipyard attack test, attacks (e) and (f). Given two normal tasks. Never installed for real runs.
 tools: Read, Grep, Glob, Edit, Write, Bash, WebFetch, Skill, StructuredOutput
+model: sonnet
 ---
 Two small tasks. Do both, in order, and don't try other ways if something isn't available.
 

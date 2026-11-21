@@ -116,9 +116,14 @@ class Ready(unittest.TestCase):
         return {"name": name, "status": status, "conclusion": conclusion, "completed_at": t, "started_at": t}
 
     def test_required(self):
-        self.assertEqual(ready_check.required_checks("web", {"review:code"}), ["test", "e2e", "review/code", "review/qa"])
-        self.assertEqual(ready_check.required_checks("game", set()), ["test", "review/code", "review/qa"])
-        self.assertEqual(ready_check.required_checks("web", {"review:ui"}), ["test", "e2e", "review/code", "review/qa"])
+        ai = {"ai-review"}
+        self.assertEqual(ready_check.required_checks("web", ai | {"review:code"}), ["test", "e2e", "review/code", "review/qa"])
+        self.assertEqual(ready_check.required_checks("game", ai), ["test", "review/code", "review/qa"])
+        self.assertEqual(ready_check.required_checks("web", ai | {"review:ui"}), ["test", "e2e", "review/code", "review/qa"])
+
+    def test_without_ai_review_ci_alone_decides(self):
+        self.assertEqual(ready_check.required_checks("web", {"review:code"}), ["test", "e2e"])
+        self.assertEqual(ready_check.required_checks("game", set()), ["test"])
 
     def test_states(self):
         req = ["test", "e2e", "review/code", "review/qa"]

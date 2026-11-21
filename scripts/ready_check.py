@@ -4,9 +4,11 @@
 Runs on workflow_run (completed) of the project's CI and preview workflows.
 For every open PR whose head is the run's head sha, recomputes from the
 check runs on that commit and creates or updates one `ready` check:
-  web:   test, e2e, and review/<name> for every review:<name> label on the PR
-         (code and qa always)
-  other: test and the review/<name> checks only
+  web:   test and e2e
+  other: test
+  plus, only when the PR has the ai-review label: review/<name> for code, qa
+  and every active-panel review:<name> label on the PR. Without ai-review the
+  PR gets CI only, so CI alone decides.
 `ready` fails when any required check failed, stays in progress while any is
 missing or running, and succeeds when all passed.
 
@@ -23,9 +25,11 @@ OK = {"success", "skipped", "neutral"}
 
 
 def required_checks(project_type, pr_labels):
+    req = ["test"] + (["e2e"] if project_type == "web" else [])
+    if "ai-review" not in pr_labels:
+        return req
     names = set(lib.load_config("panel.json")["always"])
     names |= {l[len("review:"):] for l in pr_labels if l.startswith("review:") and l[len("review:"):] in lib.panel()}
-    req = ["test"] + (["e2e"] if project_type == "web" else [])
     return req + ["review/" + n for n in sorted(names)]
 
 

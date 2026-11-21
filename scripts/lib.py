@@ -60,10 +60,15 @@ def all_label_names():
     names = [l["name"] for l in cfg["labels"]]
     names += ["review:" + n for n in panel()]
     names += ["must-fix:" + n for n in panel()]
+    names += ["missed:" + n for n in panel()]
     g = cfg["generated"]
     names += ["bot-run-%d" % i for i in range(1, g["bot_run"]["count"] + 1)]
     names += ["budget+%d" % i for i in range(1, g["budget"]["count"] + 1)]
     return names
+
+
+# Labels only the post job itself adds (never accepted from out.json).
+POST_JOB_LABELS = {"ai-review", "blocked"}
 
 
 def owned_check_names(role, review_name=None):
@@ -242,9 +247,18 @@ def classify_result(result, cli_exit, role, patch_empty, tamper):
         return "cli_error"
     if not isinstance(result.get("structured_output"), dict):
         return "bad_output"
-    if role in WRITER_ROLES and patch_empty:
+    labels = result["structured_output"].get("labels_add") or []
+    if role in WRITER_ROLES and patch_empty and not no_patch_expected(role, labels):
         return "empty_patch"
     return "success"
+
+
+# A writer that stops on purpose produces no code; that is not a failure.
+NO_PATCH_LABELS = {"builder": {"needs-human"}, "reproducer": {"manual-repro", "needs-info", "needs-spec"}}
+
+
+def no_patch_expected(role, labels_add):
+    return bool(NO_PATCH_LABELS.get(role, set()) & set(labels_add or []))
 
 
 # ---------------------------------------------------------------- GitHub API
