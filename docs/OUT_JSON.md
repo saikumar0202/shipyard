@@ -33,6 +33,7 @@ The post job trusts nothing in `out.json` except as a *request*: it takes the is
 | `cli` | object \| null | finalize | Claude's own outcome, kept apart from `exit_reason`: `subtype`, `is_error`, `structured_output` (`result`, `tool_call` or `missing`), `result_excerpt` (first 300 chars of its final text) |
 | `tools_available` | string[] \| null | finalize | Tools Claude was offered (stream-json init event) |
 | `tool_calls` | `{tool: {ok, error}}` | finalize | Tool calls by result, from the stream-json events |
+| `bash_calls` | `{command, is_error, output_tail}[]` | finalize | Each Bash call Claude made, with its real result from the event stream (command ≤ 200 chars, output last 400) |
 | `git_tamper` | object \| null | make_patch | `hooks` (non-sample files in `.git/hooks`), `config_changed`, `base_is_ancestor`, `protected_paths_touched` |
 
 ### `exit_reason`

@@ -202,7 +202,25 @@ class Finalize(unittest.TestCase):
         path = os.path.join(tmp, "events.jsonl")
         open(path, "w").write("\n".join(json.dumps(e) for e in ev) + "\nnot json\n")
         result, tools, calls = finalize_out.parse_events(path)
-        self.assertEqual((result["num_turns"], tools, calls), (2, ["Read", "Write"], {"WebFetch": {"ok": 0, "error": 1}}))
+        self.assertEqual((result["num_turns"], tools, {k: v for k, v in calls.items() if k != "_bash"}),
+                         (2, ["Read", "Write"], {"WebFetch": {"ok": 0, "error": 1}}))
+
+    def test_bash_calls_recorded_from_stream(self):
+        tmp = tempfile.mkdtemp()
+        ev = [{"type": "assistant", "message": {"content": [
+                  {"type": "tool_use", "id": "b1", "name": "Bash", "input": {"command": "tests/token_probe.py"}}]}},
+              {"type": "user", "message": {"content": [
+                  {"type": "tool_result", "tool_use_id": "b1", "is_error": False,
+                   "content": [{"type": "text", "text": "TOKEN_PROBE: clean {}"}]}]}},
+              {"type": "result", "subtype": "success", "is_error": False, "structured_output": {"comment": "c"}}]
+        path = os.path.join(tmp, "events.jsonl")
+        with open(path, "w") as f:
+            f.write("\n".join(json.dumps(e) for e in ev))
+        result, tools, calls = finalize_out.parse_events(path)
+        out = finalize_out.build(result, 0, 1, tmp, {"ROLE": "planner", "ISSUE": "1"}, tools, calls)
+        self.assertEqual(out["bash_calls"], [{"command": "tests/token_probe.py", "is_error": False,
+                                              "output_tail": "TOKEN_PROBE: clean {}"}])
+        self.assertNotIn("_bash", out["tool_calls"])
 
     def test_structured_output_from_tool_call(self):
         tmp = tempfile.mkdtemp()

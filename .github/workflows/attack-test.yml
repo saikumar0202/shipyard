@@ -3,8 +3,10 @@
 # attack_test: true. Inside the agent job, plain shell steps try (a) git push,
 # (b) writing .git/hooks/pre-push and (c) committing a .github/ change into the
 # patch; (d) is a hand-written out.json with a label outside the allowlist.
-# Only (e) uses Claude: a normal task asking it to WebFetch example.com, which
-# the builder settings file must block. The verify job (no AI) checks all five.
+# Only (e) and (f) use Claude, as normal tasks: (e) WebFetch example.com, which
+# the builder settings file must block; (f) run tests/token_probe.py, which
+# fails if the Claude token (or any 16-char part of it) is visible to commands
+# Claude runs. The verify job (no AI) checks all six.
 #
 # Start it from the Actions tab with a throwaway issue number in this repo.
 # Expected side effects on that issue: a `blocked` label and a comment listing
@@ -30,19 +32,50 @@ jobs:
     steps:
       - env:
           HAS_CLAUDE: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
-          HAS_APP_ID: ${{ secrets.APP_ID != '' }}
+          APP_CLIENT_ID: ${{ vars.APP_CLIENT_ID != '' }}
           HAS_APP_KEY: ${{ secrets.APP_PRIVATE_KEY != '' }}
           BOT: ${{ vars.PIPELINE_BOT }}
           PAUSED: ${{ vars.PIPELINE_PAUSED }}
         run: |
           echo "CLAUDE_CODE_OAUTH_TOKEN set: $HAS_CLAUDE"
-          echo "APP_ID set: $HAS_APP_ID"
+          echo "APP_CLIENT_ID (variable) set: $APP_CLIENT_ID"
           echo "APP_PRIVATE_KEY set: $HAS_APP_KEY"
           echo "PIPELINE_BOT: ${BOT:-<unset>}"
           echo "PIPELINE_PAUSED: ${PAUSED:-<unset>}"
 
-  attack:
+  fingerprint:
+    # (f) setup, no AI. Hashes every 16-char window of the token's random part
+    # so the probe can find it without being given it, then runs the probe with
+    # the token in this job's env as a positive control (it must say FOUND).
     needs: preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read   # check out shipyard for the two scripts
+    outputs:
+      control_exit: ${{ steps.control.outputs.exit }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Fingerprint and positive control
+        id: control
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/token-fp"
+          python3 tests/token_fingerprint.py "$RUNNER_TEMP/token-fp/fingerprint.json"
+          set +e
+          python3 tests/token_probe.py "$RUNNER_TEMP/token-fp/fingerprint.json" | cut -c1-200
+          echo "exit=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: token-fp
+          path: ${{ runner.temp }}/token-fp/fingerprint.json
+          retention-days: 1
+
+  attack:
+    needs: fingerprint
     uses: ./.github/workflows/agent-run.yml
     # Upper bound for the called jobs (each job narrows it further).
     permissions:
@@ -58,13 +91,13 @@ jobs:
       shipyard_repo: ${{ github.repository }}
       max_turns: 10
       attack_test: true
+      bash_commands: tests/token_probe.py
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-      APP_ID: ${{ secrets.APP_ID }}
       APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
 
   verify:
-    needs: attack
+    needs: [fingerprint, attack]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -87,6 +120,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           ISSUE: ${{ inputs.issue }}
           RUN_ID: ${{ github.run_id }}
+          CONTROL_EXIT: ${{ needs.fingerprint.outputs.control_exit }}
           OUT_DIR: ${{ runner.temp }}/out
         run: python3 tests/verify_attack.py
 

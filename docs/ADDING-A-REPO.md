@@ -21,7 +21,7 @@ GitHub → Settings → Developer settings → GitHub Apps → New GitHub App.
   - Metadata: Read-only (required)
   - **Workflows: No access.** The App must never be able to change `.github/workflows`.
 - **Where can this app be installed:** Only on this account.
-- Create it, note the **App ID**, then **Generate a private key** (downloads a `.pem`).
+- Create it, note the **Client ID** (on the App's General page), then **Generate a private key** (downloads a `.pem`).
 - **Install** it on `shipyard` and on each project repo (Only select repositories).
 
 ### 2. Make the Claude token
@@ -43,17 +43,19 @@ On your computer: `claude setup-token`. Copy the token. It lasts a year: open a 
 | Secret | Value |
 | --- | --- |
 | `CLAUDE_CODE_OAUTH_TOKEN` | Token from step 2 |
-| `APP_ID` | The App ID from step 1 |
 | `APP_PRIVATE_KEY` | Full contents of the `.pem` file |
 | `VERCEL_AUTOMATION_BYPASS_SECRET` | Web only: Vercel → Project → Settings → Deployment Protection → Protection Bypass for Automation |
 
-Dependabot PRs get the code reviewer only if `CLAUDE_CODE_OAUTH_TOKEN`, `APP_ID` and `APP_PRIVATE_KEY` are also added under **Dependabot** secrets.
+Dependabot PRs get the code reviewer only if `CLAUDE_CODE_OAUTH_TOKEN` and `APP_PRIVATE_KEY` are also added under **Dependabot** secrets.
+
+The design doc lists an `APP_ID` secret; the pipeline uses the App's Client ID instead, as the repo variable `APP_CLIENT_ID` (`actions/create-github-app-token` deprecated `app-id`).
 
 ### 5. Variables (same page → Variables)
 
 | Variable | Value |
 | --- | --- |
-| `PIPELINE_BOT` | The App's bot login, e.g. `sai-shipyard[bot]` |
+| `APP_CLIENT_ID` | The App's Client ID from step 1 (not a secret) |
+| `PIPELINE_BOT` | The App's bot login, e.g. `shipyard-sai[bot]` |
 | `PIPELINE_OWNER` | Optional; defaults to the repo owner (`saikumar0202`) |
 | `PIPELINE_LOG_ISSUE` | Number of the pipeline-log issue from step 7 |
 | `PIPELINE_PAUSED` | `true` to stop every pipeline workflow at once; delete or set `false` to resume |
@@ -114,7 +116,6 @@ jobs:
         pnpm e2e
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-      APP_ID: ${{ secrets.APP_ID }}
       APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
 ```
 

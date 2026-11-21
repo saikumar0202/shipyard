@@ -27,6 +27,7 @@ def load(path):
 def parse_events(path):
     """Return (result, tools_available, tool_calls) from the stream-json events."""
     result, tools, calls, names, so_call = None, None, {}, {}, None
+    inputs, bash = {}, []
     try:
         lines = open(path).read().splitlines()
     except OSError:
@@ -45,16 +46,24 @@ def parse_events(path):
                 continue
             if item.get("type") == "tool_use":
                 names[item.get("id")] = item.get("name")
+                inputs[item.get("id")] = item.get("input") or {}
                 if item.get("name") == "StructuredOutput" and isinstance(item.get("input"), dict):
                     so_call = item["input"]
             elif item.get("type") == "tool_result":
                 name = names.get(item.get("tool_use_id"), "?")
                 c = calls.setdefault(name, {"ok": 0, "error": 0})
                 c["error" if item.get("is_error") else "ok"] += 1
+                if name == "Bash":
+                    content = item.get("content")
+                    if isinstance(content, list):
+                        content = " ".join(b.get("text", "") for b in content if isinstance(b, dict))
+                    bash.append({"command": str(inputs.get(item.get("tool_use_id"), {}).get("command", ""))[:200],
+                                 "is_error": bool(item.get("is_error")), "output_tail": str(content or "")[-400:]})
     # The CLI fills result.structured_output from Claude's StructuredOutput
     # tool call; use the call itself if the result event lacks it.
     if isinstance(result, dict) and not isinstance(result.get("structured_output"), dict) and so_call:
         result = dict(result, structured_output=so_call, _structured_output_source="tool_call")
+    calls["_bash"] = bash
     return result, tools, calls
 
 
@@ -105,7 +114,8 @@ def build(result, cli_exit, duration, out_dir, env, tools=None, calls=None):
         "has_patch": role in lib.WRITER_ROLES and not patch_empty and not tampered,
         "cli": cli_summary(result),
         "tools_available": tools,
-        "tool_calls": calls or {},
+        "tool_calls": {k: v for k, v in (calls or {}).items() if k != "_bash"},
+        "bash_calls": (calls or {}).get("_bash", []),
         "permission_denials": denials,
         "git_tamper": tamper or None,
     }

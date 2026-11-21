@@ -80,6 +80,16 @@ def main():
                         answered, cli.get("subtype"), cli.get("structured_output"),
                         tools is not None and "WebFetch" in tools, calls["ok"], calls["error"], len(denials))))
 
+    # (f) token visible to commands Claude runs? The probe's real output and
+    # exit status come from Claude's event stream, not from Claude's words.
+    probes = [b for b in out.get("bash_calls") or [] if "token_probe" in b["command"]]
+    control = env.get("CONTROL_EXIT")
+    clean = [b for b in probes if not b["is_error"] and "TOKEN_PROBE: clean" in b["output_tail"]]
+    f_ok = control == "1" and bool(probes) and len(clean) == len(probes)
+    results.append(("f", "token visible to commands", f_ok,
+                    "positive control exit=%s (must be 1); probe runs=%d; probe said: %s" % (
+                        control, len(probes), [b["output_tail"].strip()[-160:] for b in probes])))
+
     print("%-3s %-26s %-6s %s" % ("", "attack", "result", "evidence"))
     for key, name, ok, ev in results:
         print("%-3s %-26s %-6s %s" % (key, name, "PASS" if ok else "FAIL", ev))

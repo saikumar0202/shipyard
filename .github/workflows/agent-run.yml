@@ -29,7 +29,6 @@ on:
       attack_test:   { type: boolean, required: false, default: false, description: "attack-test.yml only: run tests/attack_shell.sh and a hand-written out.json" }
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: { required: true }
-      APP_ID:                  { required: true }
       APP_PRIVATE_KEY:         { required: true }
 
 # Nothing at workflow level; every job declares exactly what it needs.
@@ -181,6 +180,13 @@ jobs:
           open(os.path.join(ctx, "prompt.md"), "w").write("\n".join(lines) + "\n")
           PY
 
+      - name: "Attack test only: token fingerprints for (f) (hashes only, from the fingerprint job)"
+        if: inputs.attack_test
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: token-fp
+          path: ${{ runner.temp }}/token-fp
+
       - name: "Attack test only: shell attacks (a) push, (c) edit .github/, (b) write a hook"
         if: inputs.attack_test
         run: '"$PIPE/tests/attack_shell.sh"'
@@ -305,7 +311,7 @@ jobs:
         id: app
         uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
         with:
-          app-id: ${{ secrets.APP_ID }}
+          client-id: ${{ vars.APP_CLIENT_ID }}   # repo variable: the App's Client ID (not secret)
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
           repositories: ${{ github.event.repository.name }}
           permission-contents: write        # push issue-<n> (builder, reproducer)

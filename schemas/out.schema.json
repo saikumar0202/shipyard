@@ -184,6 +184,23 @@
     },
     "tool_calls": {
       "type": "object"
+    },
+    "bash_calls": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string"
+          },
+          "is_error": {
+            "type": "boolean"
+          },
+          "output_tail": {
+            "type": "string"
+          }
+        }
+      }
     }
   }
 }
