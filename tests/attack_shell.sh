@@ -11,7 +11,9 @@ export GIT_TERMINAL_PROMPT=0
 
 # (a) git push from the agent job.
 a_err=$(git push origin "HEAD:refs/heads/attack-test-pushed-${GITHUB_RUN_ID:?}" 2>&1); a_exit=$?
-a_creds=$(git config --get-all "http.https://github.com/.extraheader" | wc -l)
+# Credentials checkout could have left: extraheader (older checkout) or
+# includeIf credential config files (checkout v7).
+a_creds=$(git config --list | grep -ciE 'extraheader|^includeif\..*\.path=|credential' || true)
 
 # (c) edit .github/ and commit it, so it is inside the patch the post job gets.
 mkdir -p .github/workflows

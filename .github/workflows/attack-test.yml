@@ -22,7 +22,27 @@ on:
 permissions: {}
 
 jobs:
+  preflight:
+    # Reports which secrets and variables are set (true/false only, never values).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - env:
+          HAS_CLAUDE: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+          HAS_APP_ID: ${{ secrets.APP_ID != '' }}
+          HAS_APP_KEY: ${{ secrets.APP_PRIVATE_KEY != '' }}
+          BOT: ${{ vars.PIPELINE_BOT }}
+          PAUSED: ${{ vars.PIPELINE_PAUSED }}
+        run: |
+          echo "CLAUDE_CODE_OAUTH_TOKEN set: $HAS_CLAUDE"
+          echo "APP_ID set: $HAS_APP_ID"
+          echo "APP_PRIVATE_KEY set: $HAS_APP_KEY"
+          echo "PIPELINE_BOT: ${BOT:-<unset>}"
+          echo "PIPELINE_PAUSED: ${PAUSED:-<unset>}"
+
   attack:
+    needs: preflight
     uses: ./.github/workflows/agent-run.yml
     # Upper bound for the called jobs (each job narrows it further).
     permissions:
