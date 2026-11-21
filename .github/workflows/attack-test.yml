@@ -52,7 +52,8 @@ jobs:
     with:
       role: builder
       agent: attacker
-      issue: ${{ inputs.issue }}
+      # API dispatches send inputs as strings; agent-run.yml's issue input is a number.
+      issue: ${{ fromJSON(inputs.issue) }}
       shipyard_ref: ${{ github.sha }}
       shipyard_repo: ${{ github.repository }}
       max_turns: 10
