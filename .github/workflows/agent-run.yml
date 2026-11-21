@@ -209,6 +209,15 @@ jobs:
           npm install -g --no-fund --no-audit "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" > /dev/null
           claude --version
 
+      - name: Prepare the Bash sandbox's mount points
+        # The sandbox guards .git/config.lock by mounting over it; with .git
+        # already read-only it can't create that file and Bash fails to start.
+        # Creating it empty first fixes that (and blocks any git config write).
+        # Removed again right after the Claude step.
+        run: |
+          [ -e .git/config.lock ] && { echo "::error::.git/config.lock already exists"; exit 1; }
+          : > .git/config.lock
+
       - name: Claude (the only AI step; the token exists only here)
         id: claude
         env:
@@ -241,6 +250,10 @@ jobs:
           echo "duration=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
           # Public logs: print only the outcome, never Claude's output.
           jq -c '{subtype, is_error, num_turns, denials: (.permission_denials // [] | length)}' "$OUT/result.json" 2>/dev/null || echo "no JSON result (exit $code)"
+
+      - name: Remove the sandbox mount point
+        if: always()
+        run: rm -f .git/config.lock
 
       - name: Commit leftovers and make the patch (non-AI)
         if: always() && (inputs.role == 'builder' || inputs.role == 'reproducer')
